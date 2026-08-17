@@ -1,8 +1,13 @@
-# zcode-keysmith
+<!-- markdownlint-disable MD013 MD033 MD041 -->
 
 <p align="center">
-  <strong>ZCode App managed true system-role entrypoint.</strong>
+  <img src="docs/assets/readme/zcode-keysmith-preview.png" alt="Illustrative zcode-keysmith install preview; actual paths and output vary" width="100%">
 </p>
+<p align="center"><em>Illustrative preview / 示意预览；actual paths and output follow the local dry-run.</em></p>
+
+<h1 align="center">zcode-keysmith</h1>
+
+<p align="center">Preview-first ZCode App system-role entrypoint you can verify and undo.</p>
 
 <p align="center">
   <a href="README.md">简体中文</a> ·
@@ -14,88 +19,60 @@
 
 ## English
 
-### What this is
+The Keysmith series **deploys, verifies, and revokes** custom instructions for local AI tools. `zcode-keysmith` installs a managed `system-role.md` in the user directory and routes it through an agent-server wrapper into ZCode's runtime system-message path. It is **not** an `AGENTS.md` installer, and it has **no** GitHub Release or Desktop client.
 
-`zcode-keysmith` installs a managed true system-role entrypoint for the local ZCode desktop app. It installs the repository's `examples/system-role.md` as a managed copy in the user directory, and routes it into ZCode's runtime `customSystemPrompt` path so a newly started agent-server process picks it up as a system message. **The ZCode app bundle remains untouched**: the installer only writes to the user directory and a user LaunchAgent. API keys, provider settings, MCP settings, and project files stay under ZCode's own management; the installer never reads, stores, or prints them.
+> [!WARNING]
+> This changes the local ZCode **agent-server entrypoint** for later newly started sessions. The app bundle stays untouched; API keys, provider settings, and MCP are never read. macOS only. Commands preview unless you pass `--yes`. Read [`examples/system-role.md`](examples/system-role.md) and [`docs/reference.md`](docs/reference.md) first.
 
-Default managed files:
+### Which Keysmith to use
 
-```text
-~/.zcode-keysmith/system-role.md
-~/.zcode-keysmith/config.json
-~/.zcode-keysmith/bin/zcode-agent-wrapper.py
-~/.zcode-keysmith/bin/zcode-keysmith-env.sh
-~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist
-```
+| Project | Target | Surface | Conservative install | Desktop |
+| --- | --- | --- | --- | --- |
+| [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) | Codex | Global `~/.codex` instructions | Stable CLI Release | Unsigned Beta |
+| [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) | Claude Code | Project / user `CLAUDE.md` import | Source CLI | Unsigned Beta |
+| [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) | Grok Build | Global `~/.grok/rules` (does not edit `AGENTS.md`) | Stable CLI Release | Unsigned Beta |
+| **[zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith)** | ZCode App | User-dir system-role + wrapper | Source only | None |
 
-### How it works
+### Install options
 
-The ZCode desktop app reads two environment variables when starting agent-server:
+**Source install only.** Clone this repo and run `python3 zcode-keysmith.py`. There are no Release assets, no pip/npm package, and no GUI in this repository.
 
-```text
-ZCODE_AGENT_SERVER_COMMAND
-ZCODE_AGENT_SERVER_ARGS_JSON
-```
-
-`zcode-keysmith` points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. The wrapper does three things:
-
-1. Reads ZCode's bundled runtime: `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`;
-2. Caches a copy of the runtime in the user directory, patching only the `customSystemPrompt` entrypoint to prefer `~/.zcode-keysmith/system-role.md`;
-3. Launches the cached runtime with ZCode's own Electron node command, preferring the bundled `ZCode Helper` executable so the background agent-server is not shown as another foreground ZCode app in the Dock; it falls back to the main executable only when no Helper binary is present.
-
-The ZCode runtime places `customSystemPrompt` into an `injectionTarget: "system"` context segment, so `system-role.md` lands in ZCode's system message path rather than as an ordinary project instruction file. During install, the source prompt is normalized once: if `examples/system-role.md` comes from a GLM ChatML export, the outer `<|im_start|>system:` / `<|im_end|>` transport markers are cleaned, and only the system prompt body is written.
-
-### Install
+### Quick start
 
 ```bash
-python3 zcode-keysmith.py install --dry-run   # preview
-python3 zcode-keysmith.py install --yes        # confirm and write
-python3 zcode-keysmith.py doctor               # check state
-python3 zcode-keysmith.py verify                # check the wiring
+git clone https://github.com/Jia-Ethan/zcode-keysmith.git
+cd zcode-keysmith
+python3 zcode-keysmith.py install --dry-run
+python3 zcode-keysmith.py install --yes
+python3 zcode-keysmith.py doctor
 ```
 
-Existing managed files are backed up as `<filename>.bak_YYYYMMDD_HHMMSS`. `--dry-run` takes precedence even if `--yes` is also passed.
+Quit and reopen ZCode, start a fresh task, then run `python3 zcode-keysmith.py verify`. Use `--zcode-app` or `ZCODE_APP_PATH` for a non-default app. `install --dry-run` still needs a local patchable runtime.
 
-The installer updates the current macOS launchd environment and writes a user LaunchAgent so subsequent login sessions restore the same variables. **Any already-open ZCode process must be reopened** to inherit the new agent-server entrypoint. After install:
+### What it changes
 
-1. Quit and reopen ZCode;
-2. Start a new task, type "Who are you?";
-3. Run `python3 zcode-keysmith.py verify`; `wrapper_invoked: true` confirms ZCode actually launched the managed wrapper.
+| Path | What happens |
+| --- | --- |
+| `~/.zcode-keysmith/system-role.md` | Normalized source prompt |
+| `~/.zcode-keysmith/config.json`, `bin/*` | Managed config and wrapper |
+| `~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist` | User LaunchAgent |
+| `cache/`, `logs/` | Runtime cache and wrapper logs; not removed on uninstall |
 
-Full field reference and `doctor`/`verify` output: [`docs/reference.md`](docs/reference.md).
+No project files are written; `ZCode.app` is not modified. Design: [`docs/reference.md`](docs/reference.md).
 
-### Uninstall
+### How to undo
 
 ```bash
-python3 zcode-keysmith.py uninstall --dry-run   # preview
-python3 zcode-keysmith.py uninstall --yes        # confirm removal
+python3 zcode-keysmith.py uninstall --dry-run
+python3 zcode-keysmith.py uninstall --yes
 ```
 
-Renames managed files to `.bak_YYYYMMDD_HHMMSS` and clears the keysmith entrypoint from the current launchd environment. The ZCode app bundle remains untouched.
+Uninstall only renames the five managed files to `.bak_*`. There is no `recover` / `restore`; rollback is a manual restore of those backups.
 
-### ZCode at a non-default path
+### Platforms and Beta limits
 
-```bash
-python3 zcode-keysmith.py install --zcode-app /path/to/ZCode.app --dry-run
-# or
-ZCODE_APP_PATH=/path/to/ZCode.app python3 zcode-keysmith.py install --dry-run
-```
+Documented support is macOS plus a local `ZCode.app`. No Release, no signed installer, no Desktop Beta. Recommended Python 3.10+.
 
-### Project layout and verification
+### Advanced docs, contributing, and the series
 
-See [`docs/reference.md`](docs/reference.md) for the project layout and `py_compile`/`pytest` verification steps.
-
-### Community
-
-This project accepts monitoring and feedback from the LINUX DO community: [LINUX DO](https://linux.do)
-
-Same series:
-
-- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) - Versioned instruction deployment for local Codex CLI configuration with preview, hook isolation, interruption recovery, and layered uninstall.
-- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) - Managed Claude Code `CLAUDE.md` import-block installer for local Markdown instruction files.
-- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) - Global `AGENTS.md` instruction deployment for Grok Build with compat/hook isolation, interruption recovery, and layered uninstall.
-- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) - Managed true system-role entrypoint for ZCode App; an agent-server wrapper routes `system-role.md` into the runtime `customSystemPrompt` system-message path.
-
----
-
-简体中文版: [`README.md`](README.md)。Agent install prompt: [`docs/agent-install.md`](docs/agent-install.md).
+Design, fields, and uninstall leftovers: [`docs/reference.md`](docs/reference.md). Agent install: [`docs/agent-install.md`](docs/agent-install.md). Before a patch, run `python3 -m py_compile zcode-keysmith.py` and `python3 -m pytest tests -q`. The installer never reads API keys. Community: [LINUX DO](https://linux.do). The core series is only the four projects in the table above.
