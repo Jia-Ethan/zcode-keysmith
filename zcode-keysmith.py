@@ -531,6 +531,7 @@ import hashlib
 import json
 import os
 import pathlib
+import subprocess
 import sys
 
 ORIGINAL_RUNTIME = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_ORIGINAL") or {runtime_json})
@@ -593,6 +594,9 @@ def main() -> int:
     log_invocation(runtime, args)
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
+    if os.name == "nt":
+        completed = subprocess.run([NODE_COMMAND, str(runtime), *args], env=env, check=False)
+        return completed.returncode
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
     return 127
 

@@ -165,6 +165,8 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     assert "\x00" not in wrapper_text
     assert "ZCODE_KEYSMITH_CACHE_DIR" in wrapper_text
     assert str(paths.cache_dir) in wrapper_text
+    assert 'if os.name == "nt":' in wrapper_text
+    assert "subprocess.run" in wrapper_text
 
 
 def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatch):
