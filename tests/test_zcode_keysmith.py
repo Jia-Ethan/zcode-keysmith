@@ -81,7 +81,8 @@ def test_install_dry_run_does_not_write(tmp_path, capsys):
     assert not launch_agent.exists()
 
 
-def test_install_writes_wrapper_launch_agent_and_config(tmp_path, capsys):
+def test_install_writes_wrapper_launch_agent_and_config(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     runtime = tmp_path / "zcode.cjs"
     make_runtime(runtime)
     source = tmp_path / "source.md"
@@ -239,7 +240,7 @@ def test_wrapper_logs_invocation_and_verify_reports_last_invocation(tmp_path, ca
 
     wrapper = managed / "bin" / "zcode-agent-wrapper.py"
     import subprocess
-    completed = subprocess.run([str(wrapper), "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    completed = subprocess.run([sys.executable, str(wrapper), "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     assert completed.returncode == 0
     assert "node" in completed.stdout
 
@@ -255,7 +256,13 @@ def test_wrapper_logs_invocation_and_verify_reports_last_invocation(tmp_path, ca
     assert smoke_only_code == 0
     assert "wrapper_invoked: false" in smoke_only_out
 
-    completed = subprocess.run([str(wrapper), "app-server", "--stdio"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    completed = subprocess.run(
+        [sys.executable, str(wrapper), "app-server", "--stdio"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
     assert completed.returncode == 0
 
     verify_code = mod.main([
@@ -300,3 +307,110 @@ def test_install_reports_running_zcode_state_without_requiring_restart(tmp_path,
     assert code == 0
     assert "zcode_running: true" in out
     assert "activation_note: reopen ZCode and start a fresh task" in out
+
+
+def test_windows_bundle_paths_use_resources_and_executable(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    app = tmp_path / "ZCode"
+    runtime = app / "resources" / "glm" / "zcode.cjs"
+    executable = app / "ZCode.exe"
+    runtime.parent.mkdir(parents=True)
+    make_runtime(runtime)
+    executable.write_bytes(b"MZ")
+
+    resolved_runtime, resolved_node = mod.resolve_zcode_bundle_paths(app)
+
+    assert resolved_runtime == runtime.resolve()
+    assert resolved_node == executable.resolve()
+    assert mod.zcode_app_from_runtime(runtime) == app.resolve()
+
+
+def test_windows_environment_uses_python_and_wrapper_argument(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    paths = mod.build_paths(tmp_path / "managed")
+    plan = mod.InstallPlan(
+        paths=paths,
+        source_system_file=tmp_path / "source.md",
+        zcode_runtime=tmp_path / "ZCode" / "resources" / "glm" / "zcode.cjs",
+        node_command=tmp_path / "ZCode" / "ZCode.exe",
+        activate=True,
+    )
+
+    values = mod.env_values(plan)
+    args = json.loads(values["ZCODE_AGENT_SERVER_ARGS_JSON"])
+
+    assert values["ZCODE_AGENT_SERVER_COMMAND"] == str(Path(sys.executable).resolve())
+    assert args == [str(paths.wrapper), "app-server", "--stdio"]
+    assert paths.env_script.name == "zcode-keysmith-env.ps1"
+    assert paths.launch_agent is None
+
+
+def test_windows_install_writes_managed_files_without_touching_app(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod, "get_windows_user_env_entry", lambda key: None)
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    runtime = tmp_path / "ZCode" / "resources" / "glm" / "zcode.cjs"
+    runtime.parent.mkdir(parents=True)
+    make_runtime(runtime)
+    node_command = tmp_path / "ZCode" / "ZCode.exe"
+    node_command.write_bytes(b"MZ")
+    source = tmp_path / "source.md"
+    source.write_text("# Windows system\n", encoding="utf-8")
+    managed = tmp_path / "managed"
+
+    code = mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(managed),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--yes",
+        "--no-activate",
+    ])
+
+    out = capsys.readouterr().out
+    config = json.loads((managed / "config.json").read_text(encoding="utf-8"))
+    env_script = managed / "bin" / "zcode-keysmith-env.ps1"
+    assert code == 0
+    assert "zcode-keysmith install complete" in out
+    assert env_script.exists()
+    assert "SetEnvironmentVariable" in env_script.read_text(encoding="utf-8")
+    assert config["platform"] == "Windows"
+    assert config["launch_agent"] is None
+    assert config["app_bundle_modified"] is False
+    assert runtime.read_text(encoding="utf-8").startswith("const x=")
+
+
+def test_windows_uninstall_restores_only_environment_it_still_owns(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    paths = mod.build_paths(tmp_path / "managed")
+    paths.managed_dir.mkdir(parents=True)
+    installed = {key: f"installed-{key}" for key in mod.MANAGED_ENV_KEYS}
+    previous = {
+        key: ({"value": f"previous-{key}", "registry_type": 1} if index == 0 else None)
+        for index, key in enumerate(mod.MANAGED_ENV_KEYS)
+    }
+    paths.config_file.write_text(
+        json.dumps(
+            {
+                "platform": "Windows",
+                "environment": installed,
+                "previous_user_environment": previous,
+            }
+        ),
+        encoding="utf-8",
+    )
+    current = dict(installed)
+    changed_key = mod.MANAGED_ENV_KEYS[-1]
+    current[changed_key] = "changed-later"
+    restored = []
+    monkeypatch.setattr(mod, "persistent_environment_value", lambda key: current.get(key))
+    monkeypatch.setattr(mod, "set_windows_user_env_entry", lambda key, entry: restored.append((key, entry)))
+    monkeypatch.setattr(mod, "broadcast_windows_environment_change", lambda: None)
+
+    lines = mod.restore_windows_user_environment(paths)
+
+    assert len(restored) == len(mod.MANAGED_ENV_KEYS) - 1
+    assert restored[0][1] == previous[mod.MANAGED_ENV_KEYS[0]]
+    assert all(key != changed_key for key, _ in restored)
+    assert any("modified after install" in line for line in lines)
