@@ -67,7 +67,7 @@ python3 zcode-keysmith.py uninstall --dry-run
 python3 zcode-keysmith.py uninstall --yes
 ```
 
-卸载只把五个受管理文件改名为 `.bak_*`。没有 `recover` / `restore`；回滚需手工挪回备份。
+卸载只把五个受管理文件改名为 `.bak_*`，并清空当前 launchd 环境。没有 `recover` / `restore`；手工回滚还需重新加载恢复后的 env 脚本并重启 ZCode，完整步骤见 [`docs/reference.md`](docs/reference.md)。
 
 ### 平台与 Beta 限制
 

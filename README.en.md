@@ -67,7 +67,7 @@ python3 zcode-keysmith.py uninstall --dry-run
 python3 zcode-keysmith.py uninstall --yes
 ```
 
-Uninstall only renames the five managed files to `.bak_*`. There is no `recover` / `restore`; rollback is a manual restore of those backups.
+Uninstall only renames the five managed files to `.bak_*` and clears the current launchd environment. There is no `recover` / `restore`; manual rollback must also reload the restored env script and restart ZCode. Full steps: [`docs/reference.md`](docs/reference.md).
 
 ### Platforms and Beta limits
 

@@ -86,9 +86,11 @@ ZCODE_APP_PATH=/path/to/ZCode.app python3 zcode-keysmith.py install --dry-run
 
 ### 卸载残留
 
-`uninstall --yes` 只把这五个受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、env 脚本、LaunchAgent plist。它不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。没有 `recover` / `restore` 子命令；回滚只能手工把 `.bak_*` 挪回。
+`uninstall --yes` 把这五个受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、env 脚本、LaunchAgent plist，并用 `launchctl unsetenv` 清空当前会话的 Keysmith 入口。它不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
 
-安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的五个原子写入目标里，卸载也不清理它们。
+没有 `recover` / `restore` 子命令。手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境；退出并重新打开 ZCode，新建任务后运行 `python3 zcode-keysmith.py verify`。只挪回文件不会恢复已被清空的当前 launchd 环境。
+
+安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的五个逐文件原子写入目标里，卸载也不清理它们；五个文件之间不是一个整体事务。
 
 ### 项目结构
 
@@ -186,9 +188,11 @@ ZCODE_APP_PATH=/path/to/ZCode.app python3 zcode-keysmith.py install --dry-run
 
 ### Uninstall leftovers
 
-`uninstall --yes` only renames these five managed files to `.bak_YYYYMMDD_HHMMSS`: `system-role.md`, `config.json`, the wrapper, the env script, and the LaunchAgent plist. It does not delete `~/.zcode-keysmith/` itself, nor `cache/`, `logs/`, or historical backups. There is no `recover` / `restore` subcommand; rollback is a manual move of `.bak_*` files.
+`uninstall --yes` renames these five managed files to `.bak_YYYYMMDD_HHMMSS`: `system-role.md`, `config.json`, the wrapper, the env script, and the LaunchAgent plist, then clears the current Keysmith entrypoint with `launchctl unsetenv`. It does not delete `~/.zcode-keysmith/` itself, nor `cache/`, `logs/`, or historical backups.
 
-Install also creates `~/.zcode-keysmith/cache/` and `~/.zcode-keysmith/logs/`. The wrapper later writes a cached runtime copy and `logs/wrapper-start.jsonl`. Those paths are not among the five atomic install targets and are not cleaned by uninstall.
+There is no `recover` / `restore` subcommand. For a manual rollback, restore one matching set of `.bak_*` files using the `removed:` paths printed by uninstall, then run the restored `~/.zcode-keysmith/bin/zcode-keysmith-env.sh` (or log out and back in) to reload the launchd environment. Quit and reopen ZCode, start a fresh task, and run `python3 zcode-keysmith.py verify`. Moving the files back alone does not restore the current launchd environment cleared by uninstall.
+
+Install also creates `~/.zcode-keysmith/cache/` and `~/.zcode-keysmith/logs/`. The wrapper later writes a cached runtime copy and `logs/wrapper-start.jsonl`. Those paths are not among the five individually atomic install targets and are not cleaned by uninstall; the five files are not one cross-file transaction.
 
 ### Verification
 
