@@ -4,6 +4,7 @@ import importlib.util
 import json
 import plistlib
 import py_compile
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,21 @@ def make_runtime(path: Path) -> None:
         "const x={customSystemPrompt:this.config.systemPrompt,language:this.config.language};\n",
         encoding="utf-8",
     )
+
+
+def test_cli_reports_release_version():
+    completed = subprocess.run(
+        [sys.executable, str(MODULE_PATH), "--version"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == "zcode-keysmith.py 0.1.0"
+    assert completed.stderr == ""
+    assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 
 
 def test_normalizes_glm_chatml_system_wrapper_for_installed_prompt():
@@ -116,6 +132,7 @@ def test_install_writes_wrapper_launch_agent_and_config(tmp_path, capsys):
     assert env_script.exists()
     assert "ZCODE_KEYSMITH_SYSTEM_FILE" in wrapper.read_text(encoding="utf-8")
     assert "launchctl setenv ZCODE_AGENT_SERVER_COMMAND" in env_script.read_text(encoding="utf-8")
+    assert config["tool_version"] == mod.VERSION
     assert config["mode"] == "zcode-app-wrapper"
     assert config["app_bundle_modified"] is False
     assert plist["Label"] == "com.jia.zcode-keysmith.env"
@@ -238,7 +255,6 @@ def test_wrapper_logs_invocation_and_verify_reports_last_invocation(tmp_path, ca
     capsys.readouterr()
 
     wrapper = managed / "bin" / "zcode-agent-wrapper.py"
-    import subprocess
     completed = subprocess.run([str(wrapper), "--help"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     assert completed.returncode == 0
     assert "node" in completed.stdout

@@ -21,7 +21,7 @@ ZCODE_AGENT_SERVER_ARGS_JSON
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
-本工具**没有** GitHub Release、Desktop 客户端、`pip` / npm 安装包、`--recover` / `--restore` 或分层卸载。安装面只有 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`；Linux / Windows 没有文档化支持。非 Darwin 会跳过 `launchctl` 注入。
+`v0.1.0` Release **仅提供 GitHub 自动源码归档**，没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包、`--recover` / `--restore` 或分层卸载。安装面只有下载源码归档或 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`；Linux / Windows 没有文档化支持。非 Darwin 会跳过 `launchctl` 注入。
 
 `install --dry-run` 仍会读取源提示词并检查本机 runtime 是否可打补丁。本机找不到可识别的 `ZCode.app` 时，预览会失败。可用 `--zcode-app` 或 `ZCODE_APP_PATH` 指定路径。
 
@@ -137,7 +137,7 @@ The installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmith/bin/zcod
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
-This project has **no** GitHub Release, Desktop client, pip/npm package, `--recover` / `--restore`, or layered uninstall. The only install surface is cloning the repo and running `zcode-keysmith.py`. The documented platform is macOS plus a local `ZCode.app`; Linux / Windows are not documented. Non-Darwin hosts skip `launchctl` injection.
+The `v0.1.0` Release provides **GitHub-generated source archives only**, with no standalone binary assets, Desktop client, pip/npm package, `--recover` / `--restore`, or layered uninstall. Install from a source archive or clone the repo, then run `zcode-keysmith.py`. The documented platform is macOS plus a local `ZCode.app`; Linux / Windows are not documented. Non-Darwin hosts skip `launchctl` injection.
 
 `install --dry-run` still reads the source prompt and checks that the local runtime is patchable. Preview fails if no recognizable `ZCode.app` is present. Pass `--zcode-app` or `ZCODE_APP_PATH` for a non-default location.
 

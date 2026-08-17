@@ -27,6 +27,8 @@ from pathlib import Path
 from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent
+__version__ = "0.1.0"
+VERSION = __version__
 DEFAULT_SOURCE_SYSTEM_FILE = REPO_ROOT / "examples" / "system-role.md"
 DEFAULT_MANAGED_DIR = Path.home() / ".zcode-keysmith"
 DEFAULT_SYSTEM_FILE_NAME = "system-role.md"
@@ -307,6 +309,7 @@ def render_launch_agent(plan: InstallPlan) -> dict[str, object]:
 
 def render_config(plan: InstallPlan) -> str:
     payload = {
+        "tool_version": VERSION,
         "mode": "zcode-app-wrapper",
         "system_file": str(plan.paths.system_file),
         "wrapper": str(plan.paths.wrapper),
@@ -713,6 +716,7 @@ def uninstall(paths: InstallPaths, yes: bool, dry_run_flag: bool, activate: bool
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Install or inspect zcode-keysmith managed ZCode App system-role entrypoint.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     sub = parser.add_subparsers(dest="command")
 
     install_parser = sub.add_parser("install", help="Install managed ZCode App wrapper and system-role file")
