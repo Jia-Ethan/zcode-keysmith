@@ -595,7 +595,14 @@ def main() -> int:
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
     if os.name == "nt":
-        completed = subprocess.run([NODE_COMMAND, str(runtime), *args], env=env, check=False)
+        completed = subprocess.run(
+            [NODE_COMMAND, str(runtime), *args],
+            env=env,
+            stdin=sys.stdin.buffer,
+            stdout=sys.stdout.buffer,
+            stderr=sys.stderr.buffer,
+            check=False,
+        )
         return completed.returncode
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
     return 127
