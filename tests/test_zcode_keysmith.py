@@ -108,6 +108,7 @@ def test_install_dry_run_does_not_write(tmp_path, capsys):
 
 def test_install_writes_wrapper_launch_agent_and_config(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
     runtime = tmp_path / "zcode.cjs"
     make_runtime(runtime)
     source = tmp_path / "source.md"
@@ -173,7 +174,7 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     py_compile.compile(str(wrapper_file), doraise=True)
     assert "\x00" not in wrapper_text
     assert "ZCODE_KEYSMITH_CACHE_DIR" in wrapper_text
-    assert str(paths.cache_dir) in wrapper_text
+    assert json.dumps(str(paths.cache_dir), ensure_ascii=False) in wrapper_text
     assert 'if os.name == "nt":' in wrapper_text
     assert "subprocess.Popen" in wrapper_text
     assert "proc.wait()" in wrapper_text
@@ -184,15 +185,15 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
 def test_rendered_wrapper_cache_write_is_safe_under_concurrent_start(tmp_path):
     runtime = tmp_path / "zcode.cjs"
     runtime.write_text(
-        "const x={customSystemPrompt:this.config.systemPrompt,language:this.config.language};\n"
-        + "x" * (4 * 1024 * 1024),
+        "MARKER = '''customSystemPrompt:this.config.systemPrompt,language:'''\n"
+        + "# "
+        + "x" * (4 * 1024 * 1024)
+        + "\n",
         encoding="utf-8",
     )
     source = tmp_path / "source.md"
     source.write_text("# system\n", encoding="utf-8")
-    node_command = tmp_path / "node"
-    node_command.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    node_command.chmod(0o755)
+    node_command = Path(sys.executable)
     paths = mod.build_paths(tmp_path / "managed", tmp_path / "agent.plist")
     paths.wrapper.parent.mkdir(parents=True)
     plan = mod.InstallPlan(paths, source, runtime, node_command, False)
@@ -279,7 +280,8 @@ def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatc
     assert "TEST_OPENAI_KEY_REDACTED" not in out
 
 
-def test_resolve_zcode_app_path_derives_runtime_and_node_command(tmp_path):
+def test_resolve_zcode_app_path_derives_runtime_and_node_command(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     app = tmp_path / "ZCode.app"
     runtime = app / "Contents" / "Resources" / "glm" / "zcode.cjs"
     node = app / "Contents" / "MacOS" / "ZCode"
@@ -299,7 +301,8 @@ def test_resolve_zcode_app_path_derives_runtime_and_node_command(tmp_path):
     assert resolved_node == helper.resolve()
 
 
-def test_resolve_zcode_app_path_falls_back_to_main_executable_when_helper_missing(tmp_path):
+def test_resolve_zcode_app_path_falls_back_to_main_executable_when_helper_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     app = tmp_path / "ZCode.app"
     runtime = app / "Contents" / "Resources" / "glm" / "zcode.cjs"
     node = app / "Contents" / "MacOS" / "ZCode"
@@ -317,12 +320,15 @@ def test_resolve_zcode_app_path_falls_back_to_main_executable_when_helper_missin
 
 def test_wrapper_logs_invocation_and_verify_reports_last_invocation(tmp_path, capsys):
     runtime = tmp_path / "zcode.cjs"
-    make_runtime(runtime)
+    runtime.write_text(
+        "MARKER = '''customSystemPrompt:this.config.systemPrompt,language:'''\n"
+        "import sys\n"
+        "print('node', *sys.argv[1:])\n",
+        encoding="utf-8",
+    )
     source = tmp_path / "source.md"
     source.write_text("# managed system\n", encoding="utf-8")
-    node_command = tmp_path / "node"
-    node_command.write_text("#!/bin/sh\necho node $@\n", encoding="utf-8")
-    node_command.chmod(0o755)
+    node_command = Path(sys.executable)
     managed = tmp_path / "managed"
     launch_agent = tmp_path / "agent.plist"
 
