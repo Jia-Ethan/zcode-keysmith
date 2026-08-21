@@ -7,7 +7,7 @@
 
 <h1 align="center">zcode-keysmith</h1>
 
-<p align="center">Preview-first ZCode App system-role entrypoint you can verify and undo.</p>
+<p align="center">Preview-first ZCode App system-role entrypoint for macOS and Windows that you can verify and undo.</p>
 
 <p align="center">
   <img alt="Source version v0.1.0" src="https://img.shields.io/badge/source-v0.1.0-0099CC">
@@ -27,7 +27,7 @@
 The Keysmith series **deploys, verifies, and revokes** custom instructions for local AI tools. `zcode-keysmith` installs a managed `system-role.md` in the user directory and routes it through an agent-server wrapper into ZCode's runtime system-message path. It is **not** an `AGENTS.md` installer; `v0.1.0` is source-only, with no Desktop client.
 
 > [!WARNING]
-> This changes the local ZCode **agent-server entrypoint** for later newly started sessions. The app bundle stays untouched; API keys, provider settings, and MCP are never read. macOS only. Commands preview unless you pass `--yes`. Read [`examples/system-role.md`](examples/system-role.md) and [`docs/reference.md`](docs/reference.md) first.
+> This changes the local ZCode **agent-server entrypoint** for later newly started sessions. The app bundle stays untouched; API keys, provider settings, and MCP are never read. macOS and Windows 10/11 are supported. Commands preview unless you pass `--yes`. Read [`examples/system-role.md`](examples/system-role.md) and [`docs/reference.md`](docs/reference.md) first.
 
 ### Which Keysmith to use
 
@@ -42,7 +42,25 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 
 **Source install only.** Use the GitHub-generated source archive from [`v0.1.0`](https://github.com/Jia-Ethan/zcode-keysmith/releases/tag/v0.1.0), or clone this repo and run `python3 zcode-keysmith.py`. There are no standalone binary assets, no pip/npm package, and no GUI in this repository.
 
-### Quick start
+### Windows quick start
+
+Quit ZCode, then run in PowerShell:
+
+```powershell
+py zcode-keysmith.py install --dry-run
+py zcode-keysmith.py install --yes
+py zcode-keysmith.py doctor
+```
+
+Reopen ZCode, start a fresh task, then run `py zcode-keysmith.py verify`. ZCode is auto-detected from running processes, App Paths, and common install directories. For a custom install:
+
+```powershell
+py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
+```
+
+The Windows installer uses current-user environment values and needs no administrator access.
+
+### macOS quick start
 
 ```bash
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
@@ -61,7 +79,8 @@ Quit and reopen ZCode, start a fresh task, then run `python3 zcode-keysmith.py v
 | --- | --- |
 | `~/.zcode-keysmith/system-role.md` | Normalized source prompt |
 | `~/.zcode-keysmith/config.json`, `bin/*` | Managed config and wrapper |
-| `~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist` | User LaunchAgent |
+| `~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist` | macOS user LaunchAgent |
+| Seven `ZCODE_*` values under `HKCU\Environment` | Windows current-user entrypoint; no admin access |
 | `cache/`, `logs/` | Runtime cache and wrapper logs; not removed on uninstall |
 
 No project files are written; `ZCode.app` is not modified. Design: [`docs/reference.md`](docs/reference.md).
@@ -73,11 +92,11 @@ python3 zcode-keysmith.py uninstall --dry-run
 python3 zcode-keysmith.py uninstall --yes
 ```
 
-Uninstall only renames the five managed files to `.bak_*` and clears the current launchd environment. There is no `recover` / `restore`; manual rollback must also reload the restored env script and restart ZCode. Full steps: [`docs/reference.md`](docs/reference.md).
+On Windows, replace `python3` with `py`. macOS uninstall renames five managed files and clears launchd. Windows uninstall backs up four managed files and restores pre-install user environment values only if Keysmith still owns the current values, so later manual changes are preserved. Full steps: [`docs/reference.md`](docs/reference.md).
 
-### Platforms and Beta limits
+### Platforms and limits
 
-Documented support is macOS plus a local `ZCode.app`. The `v0.1.0` Release provides only GitHub-generated source archives; there is no signed installer or Desktop Beta. Recommended Python 3.10+.
+Documented support is macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. The `v0.1.0` Release provides only GitHub-generated source archives; there is no signed installer or Desktop Beta. Python 3.10+ is recommended; Windows must retain the Python interpreter used during install.
 
 ### Advanced docs, contributing, and the series
 
