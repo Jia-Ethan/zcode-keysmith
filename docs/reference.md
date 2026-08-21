@@ -21,7 +21,7 @@ macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zc
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
-`v0.1.0` Release **仅提供 GitHub 自动源码归档**，没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包、`--recover` / `--restore` 或分层卸载。安装面只有下载源码归档或 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
+`v0.1.1` Release **仅提供 GitHub 自动源码归档**，没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包、`--recover` / `--restore` 或分层卸载。安装面只有下载源码归档或 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
 
 `install --dry-run` 仍会读取源提示词并检查本机 runtime 是否可打补丁。本机找不到可识别的 ZCode 安装时，预览会失败。可用 `--zcode-app` 或 `ZCODE_APP_PATH` 指定路径。
 
@@ -67,7 +67,7 @@ python3 zcode-keysmith.py doctor
 - wrapper 是否存在；
 - macOS LaunchAgent 或 Windows 持久用户环境是否存在；
 - ZCode runtime 是否存在并匹配当前入口形态；
-- launchd 环境变量是否指向受管理入口；
+- macOS launchd 或 Windows `HKCU\Environment` 是否指向受管理入口；
 - API key 状态：固定显示为 `not read or stored`。
 
 如果 ZCode 不在 `/Applications/ZCode.app`，可以指定 App 路径：
@@ -143,7 +143,7 @@ On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmit
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
-The `v0.1.0` Release provides **GitHub-generated source archives only**, with no standalone binary assets, Desktop client, pip/npm package, `--recover` / `--restore`, or layered uninstall. Install from a source archive or clone the repo, then run `zcode-keysmith.py`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
+The `v0.1.1` Release provides **GitHub-generated source archives only**, with no standalone binary assets, Desktop client, pip/npm package, `--recover` / `--restore`, or layered uninstall. Install from a source archive or clone the repo, then run `zcode-keysmith.py`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
 
 `install --dry-run` still reads the source prompt and checks that the local runtime is patchable. Preview fails if no recognizable ZCode installation is present. Pass `--zcode-app` or `ZCODE_APP_PATH` for a non-default location.
 

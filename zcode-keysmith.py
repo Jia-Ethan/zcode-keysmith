@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Iterable
 
 REPO_ROOT = Path(__file__).resolve().parent
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 VERSION = __version__
 DEFAULT_SOURCE_SYSTEM_FILE = REPO_ROOT / "examples" / "system-role.md"
 DEFAULT_MANAGED_DIR = Path.home() / ".zcode-keysmith"

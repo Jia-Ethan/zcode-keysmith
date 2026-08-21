@@ -10,7 +10,7 @@
 <p align="center">Preview-first ZCode App system-role entrypoint for macOS and Windows that you can verify and undo.</p>
 
 <p align="center">
-  <img alt="Source version v0.1.0" src="https://img.shields.io/badge/source-v0.1.0-0099CC">
+  <img alt="Source version v0.1.1" src="https://img.shields.io/badge/source-v0.1.1-0099CC">
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-6DB33F">
 </p>
 
@@ -24,7 +24,7 @@
 
 ## English
 
-The Keysmith series **deploys, verifies, and revokes** custom instructions for local AI tools. `zcode-keysmith` installs a managed `system-role.md` in the user directory and routes it through an agent-server wrapper into ZCode's runtime system-message path. It is **not** an `AGENTS.md` installer; `v0.1.0` is source-only, with no Desktop client.
+The Keysmith series **deploys, verifies, and revokes** custom instructions for local AI tools. `zcode-keysmith` installs a managed `system-role.md` in the user directory and routes it through an agent-server wrapper into ZCode's runtime system-message path. It is **not** an `AGENTS.md` installer; `v0.1.1` is source-only, with no Desktop client.
 
 > [!WARNING]
 > This changes the local ZCode **agent-server entrypoint** for later newly started sessions. The app bundle stays untouched; API keys, provider settings, and MCP are never read. macOS and Windows 10/11 are supported. Commands preview unless you pass `--yes`. Read [`examples/system-role.md`](examples/system-role.md) and [`docs/reference.md`](docs/reference.md) first.
@@ -40,7 +40,7 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 
 ### Install options
 
-**Source install only.** Use the GitHub-generated source archive from [`v0.1.0`](https://github.com/Jia-Ethan/zcode-keysmith/releases/tag/v0.1.0), or clone this repo and run `python3 zcode-keysmith.py`. There are no standalone binary assets, no pip/npm package, and no GUI in this repository.
+**Source install only.** Use the GitHub-generated source archive from [`v0.1.1`](https://github.com/Jia-Ethan/zcode-keysmith/releases/tag/v0.1.1), or clone this repo and run `python3 zcode-keysmith.py`. There are no standalone binary assets, no pip/npm package, and no GUI in this repository.
 
 ### Windows quick start
 
@@ -96,7 +96,7 @@ On Windows, replace `python3` with `py`. macOS uninstall renames five managed fi
 
 ### Platforms and limits
 
-Documented support is macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. The `v0.1.0` Release provides only GitHub-generated source archives; there is no signed installer or Desktop Beta. Python 3.10+ is recommended; Windows must retain the Python interpreter used during install.
+Documented support is macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. The `v0.1.1` Release provides only GitHub-generated source archives; there is no signed installer or Desktop Beta. Python 3.10+ is recommended; Windows must retain the Python interpreter used during install.
 
 ### Advanced docs, contributing, and the series
 

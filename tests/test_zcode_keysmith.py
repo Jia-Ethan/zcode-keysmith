@@ -42,7 +42,7 @@ def test_cli_reports_release_version():
     )
 
     assert completed.returncode == 0
-    assert completed.stdout.strip() == "zcode-keysmith.py 0.1.0"
+    assert completed.stdout.strip() == "zcode-keysmith.py 0.1.1"
     assert completed.stderr == ""
     assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 

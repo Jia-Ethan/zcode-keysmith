@@ -10,7 +10,7 @@
 <p align="center">先预览、再写入、可撤销的 ZCode App system-role 入口安装器，支持 macOS 与 Windows。</p>
 
 <p align="center">
-  <img alt="Source version v0.1.0" src="https://img.shields.io/badge/source-v0.1.0-0099CC">
+  <img alt="Source version v0.1.1" src="https://img.shields.io/badge/source-v0.1.1-0099CC">
   <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-6DB33F">
 </p>
 
@@ -24,7 +24,7 @@
 
 ## 简体中文
 
-Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指令。`zcode-keysmith` 在用户目录安装受管理的 `system-role.md`，经 agent-server wrapper 进入 ZCode runtime 的 system message 路径。**不是** `AGENTS.md` 安装器；`v0.1.0` 仅发布源码，无 Desktop 客户端。
+Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指令。`zcode-keysmith` 在用户目录安装受管理的 `system-role.md`，经 agent-server wrapper 进入 ZCode runtime 的 system message 路径。**不是** `AGENTS.md` 安装器；`v0.1.1` 仅发布源码，无 Desktop 客户端。
 
 > [!WARNING]
 > 这会改本机 ZCode 的 **agent-server 入口**，影响之后新启动的会话。不改 App 原包，不读 API key / provider / MCP。支持 macOS 与 Windows 10/11。默认只预览，显式 `--yes` 才写入。先阅读 [`examples/system-role.md`](examples/system-role.md) 和 [`docs/reference.md`](docs/reference.md)。
@@ -40,7 +40,7 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 
 ### 安装方式
 
-**只有源码安装。** 使用 [`v0.1.0`](https://github.com/Jia-Ethan/zcode-keysmith/releases/tag/v0.1.0) 的 GitHub 自动源码归档，或 clone 本仓库后运行 `python3 zcode-keysmith.py`。没有独立二进制资产、没有 `pip` / npm、没有本仓库 GUI。
+**只有源码安装。** 使用 [`v0.1.1`](https://github.com/Jia-Ethan/zcode-keysmith/releases/tag/v0.1.1) 的 GitHub 自动源码归档，或 clone 本仓库后运行 `python3 zcode-keysmith.py`。没有独立二进制资产、没有 `pip` / npm、没有本仓库 GUI。
 
 ### Windows 快速开始
 
@@ -102,7 +102,7 @@ Windows 也可以把上面的 `python3` 换成 `py`。macOS 卸载把五个受�
 
 ### 平台与限制
 
-文档化支持为 macOS + 本机 `ZCode.app`，以及 Windows 10/11 + 本机 `ZCode.exe`。`v0.1.0` Release 仅提供 GitHub 自动源码归档；无签名包、无 Desktop Beta。推荐 Python 3.10+；Windows 运行期间不能删除安装时使用的 Python。
+文档化支持为 macOS + 本机 `ZCode.app`，以及 Windows 10/11 + 本机 `ZCode.exe`。`v0.1.1` Release 仅提供 GitHub 自动源码归档；无签名包、无 Desktop Beta。推荐 Python 3.10+；Windows 运行期间不能删除安装时使用的 Python。
 
 ### 进阶文档 · 贡献 · 系列
 
