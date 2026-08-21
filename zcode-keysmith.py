@@ -595,15 +595,12 @@ def main() -> int:
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
     if os.name == "nt":
-        completed = subprocess.run(
+        # Use Popen to inherit stdin/stdout/stderr directly for stable long-running JSON-RPC communication
+        proc = subprocess.Popen(
             [NODE_COMMAND, str(runtime), *args],
             env=env,
-            stdin=sys.stdin.buffer,
-            stdout=sys.stdout.buffer,
-            stderr=sys.stderr.buffer,
-            check=False,
         )
-        return completed.returncode
+        return proc.wait()
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
     return 127
 

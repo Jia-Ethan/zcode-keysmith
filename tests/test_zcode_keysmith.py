@@ -166,10 +166,10 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     assert "ZCODE_KEYSMITH_CACHE_DIR" in wrapper_text
     assert str(paths.cache_dir) in wrapper_text
     assert 'if os.name == "nt":' in wrapper_text
-    assert "subprocess.run" in wrapper_text
-    assert "stdin=sys.stdin.buffer" in wrapper_text
-    assert "stdout=sys.stdout.buffer" in wrapper_text
-    assert "stderr=sys.stderr.buffer" in wrapper_text
+    assert "subprocess.Popen" in wrapper_text
+    assert "proc.wait()" in wrapper_text
+    # Popen inherits stdin/stdout/stderr directly for stable JSON-RPC communication
+    assert "env=env" in wrapper_text
 
 
 def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatch):
