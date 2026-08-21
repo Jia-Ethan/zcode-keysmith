@@ -22,6 +22,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -373,17 +374,69 @@ def build_patched_runtime_text(original_runtime: str, system_file: str) -> str:
     return original_runtime.replace(PATCH_NEEDLE, replacement, 1)
 
 
-def backup_existing(path: Path) -> Path | None:
-    if not path.exists():
-        return None
+def reserve_backup_path(path: Path) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup = path.with_name(f"{path.name}.bak_{stamp}")
     counter = 1
-    while backup.exists():
-        backup = path.with_name(f"{path.name}.bak_{stamp}_{counter}")
-        counter += 1
-    path.replace(backup)
+    while True:
+        try:
+            descriptor = os.open(backup, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            backup = path.with_name(f"{path.name}.bak_{stamp}_{counter}")
+            counter += 1
+            continue
+        os.close(descriptor)
+        return backup
+
+
+def backup_existing(path: Path) -> Path | None:
+    if not path.exists():
+        return None
+    backup = reserve_backup_path(path)
+    try:
+        path.replace(backup)
+    except Exception:
+        backup.unlink(missing_ok=True)
+        raise
     return backup
+
+
+@contextmanager
+def operation_lock(paths: InstallPaths):
+    paths.managed_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = paths.managed_dir / ".operation.lock"
+    handle = lock_path.open("a+b")
+    if lock_path.stat().st_size == 0:
+        handle.write(b"0")
+        handle.flush()
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError) as exc:
+        handle.close()
+        raise KeysmithError(f"another zcode-keysmith operation is already running: {lock_path}") from exc
+    try:
+        yield
+    finally:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def atomic_write_text(path: Path, content: str, mode: int | None = None) -> None:
@@ -417,6 +470,95 @@ def atomic_write_plist(path: Path, payload: dict[str, object]) -> None:
         plistlib.dump(payload, handle, sort_keys=False)
         tmp = Path(handle.name)
     tmp.replace(path)
+
+
+def rollback_replaced_files(replaced: list[tuple[Path, Path | None]]) -> list[str]:
+    errors: list[str] = []
+    for target, previous in reversed(replaced):
+        try:
+            if previous is None:
+                target.unlink(missing_ok=True)
+            else:
+                previous.replace(target)
+        except OSError as exc:
+            errors.append(f"{target}: {exc}")
+    return errors
+
+
+def restore_replaced_files(replaced: list[tuple[Path, Path | None]]) -> None:
+    errors = rollback_replaced_files(replaced)
+    if errors:
+        raise KeysmithError("file rollback failed:\n" + "\n".join(errors))
+
+
+def install_managed_files(
+    plan: InstallPlan,
+    system_prompt: str,
+    config: str,
+) -> tuple[list[Path], list[tuple[Path, Path | None]]]:
+    payloads: list[tuple[Path, str, int | None]] = [
+        (plan.paths.system_file, system_prompt, None),
+        (plan.paths.config_file, config, None),
+        (plan.paths.wrapper, render_wrapper(plan), 0o755),
+        (plan.paths.env_script, render_env_script(plan), 0o755),
+    ]
+    staged: list[tuple[Path, Path]] = []
+    replaced: list[tuple[Path, Path | None]] = []
+    backups: list[Path] = []
+    try:
+        for target, content, mode in payloads:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=str(target.parent),
+                prefix=f".{target.name}.",
+                suffix=".install.tmp",
+                delete=False,
+            ) as handle:
+                handle.write(content)
+                tmp = Path(handle.name)
+            if mode is not None:
+                tmp.chmod(mode)
+            staged.append((target, tmp))
+
+        if plan.paths.launch_agent is not None:
+            target = plan.paths.launch_agent
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=str(target.parent),
+                prefix=f".{target.name}.",
+                suffix=".install.tmp",
+                delete=False,
+            ) as handle:
+                plistlib.dump(render_launch_agent(plan), handle, sort_keys=False)
+                tmp = Path(handle.name)
+            staged.append((target, tmp))
+
+        for target, tmp in staged:
+            previous = reserve_backup_path(target) if target.exists() else None
+            if previous is not None:
+                try:
+                    target.replace(previous)
+                except Exception:
+                    previous.unlink(missing_ok=True)
+                    raise
+            replaced.append((target, previous))
+            tmp.replace(target)
+            if previous is not None:
+                backups.append(previous)
+        return backups, replaced
+    except Exception as exc:
+        rollback_errors = rollback_replaced_files(replaced)
+        if rollback_errors:
+            raise KeysmithError(
+                f"{exc}\nFile rollback failed:\n" + "\n".join(rollback_errors)
+            ) from exc
+        raise
+    finally:
+        for _, tmp in staged:
+            tmp.unlink(missing_ok=True)
 
 
 def agent_server_command(plan: InstallPlan) -> str:
@@ -533,6 +675,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 ORIGINAL_RUNTIME = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_ORIGINAL") or {runtime_json})
 SYSTEM_FILE = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_SYSTEM_FILE") or {system_file_json})
@@ -563,9 +706,22 @@ def patched_runtime_path() -> pathlib.Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = CACHE_DIR / f"zcode-keysmith-runtime-{{digest}}.cjs"
     if not path.exists() or path.read_text(encoding="utf-8", errors="ignore") != patched:
-        tmp = path.with_name(f".{{path.name}}.tmp")
-        tmp.write_text(patched, encoding="utf-8")
-        tmp.replace(path)
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w",
+                encoding="utf-8",
+                dir=str(CACHE_DIR),
+                prefix=f".{{path.name}}.",
+                suffix=".tmp",
+                delete=False,
+            ) as handle:
+                handle.write(patched)
+                tmp = pathlib.Path(handle.name)
+            tmp.replace(path)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
     return path
 
 
@@ -623,6 +779,12 @@ def get_windows_user_env_entry(key: str) -> dict[str, object] | None:
     if not isinstance(value, str):
         return None
     return {"value": value, "registry_type": int(registry_type)}
+
+
+def windows_string_env_entry(value: str) -> dict[str, object]:
+    import winreg
+
+    return {"value": value, "registry_type": winreg.REG_SZ}
 
 
 def set_windows_user_env_entry(key: str, entry: dict[str, object] | None) -> None:
@@ -704,28 +866,68 @@ def capture_previous_windows_environment(paths: InstallPaths) -> dict[str, dict[
 def activate_current_session(plan: InstallPlan) -> list[str]:
     if platform.system() == "Windows":
         results = []
-        import winreg
 
-        for key, value in env_values(plan).items():
-            set_windows_user_env_entry(key, {"value": value, "registry_type": winreg.REG_SZ})
-            results.append(f"user environment {key}: set")
-        broadcast_windows_environment_change()
+        previous = {key: get_windows_user_env_entry(key) for key in MANAGED_ENV_KEYS}
+        changed: list[str] = []
+        try:
+            for key, value in env_values(plan).items():
+                set_windows_user_env_entry(key, windows_string_env_entry(value))
+                changed.append(key)
+                results.append(f"user environment {key}: set")
+            broadcast_windows_environment_change()
+        except Exception as exc:
+            rollback_errors: list[str] = []
+            for key in reversed(changed):
+                try:
+                    set_windows_user_env_entry(key, previous[key])
+                except Exception as rollback_exc:
+                    rollback_errors.append(f"{key}: {rollback_exc}")
+            try:
+                broadcast_windows_environment_change()
+            except Exception as rollback_exc:
+                rollback_errors.append(f"broadcast: {rollback_exc}")
+            detail = f"Windows environment activation failed: {exc}"
+            if rollback_errors:
+                detail += "\nEnvironment rollback failed:\n" + "\n".join(rollback_errors)
+            raise KeysmithError(detail) from exc
         return results
     if platform.system() != "Darwin":
         return ["launchctl: skipped (non-macOS)"]
     results: list[str] = []
-    for key, value in env_values(plan).items():
-        completed = subprocess.run(
-            ["launchctl", "setenv", key, value],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise KeysmithError(f"launchctl setenv failed for {key}: {detail}")
-        results.append(f"launchctl setenv {key}: ok")
+    previous = {key: launchctl_getenv(key) for key in MANAGED_ENV_KEYS}
+    changed: list[str] = []
+    try:
+        for key, value in env_values(plan).items():
+            completed = subprocess.run(
+                ["launchctl", "setenv", key, value],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()
+                raise KeysmithError(f"launchctl setenv failed for {key}: {detail}")
+            changed.append(key)
+            results.append(f"launchctl setenv {key}: ok")
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for key in reversed(changed):
+            command = ["launchctl", "setenv", key, previous[key]] if previous[key] is not None else ["launchctl", "unsetenv", key]
+            completed = subprocess.run(
+                command,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()
+                rollback_errors.append(f"{key}: {detail or f'exit {completed.returncode}'}")
+        detail = f"macOS launchctl activation failed: {exc}"
+        if rollback_errors:
+            detail += "\nEnvironment rollback failed:\n" + "\n".join(rollback_errors)
+        raise KeysmithError(detail) from exc
     return results
 
 
@@ -817,30 +1019,31 @@ def install(plan: InstallPlan, yes: bool, dry_run_flag: bool) -> list[str]:
     if dry_run:
         return install_lines(plan, dry_run=True, backups=[], activation=[])
 
+    with operation_lock(plan.paths):
+        return install_locked(plan, system_prompt)
+
+
+def install_locked(plan: InstallPlan, system_prompt: str) -> list[str]:
     previous_user_environment = (
         capture_previous_windows_environment(plan.paths) if platform.system() == "Windows" else None
     )
     for directory in (plan.paths.managed_dir, plan.paths.wrapper.parent, plan.paths.log_dir, plan.paths.cache_dir):
         directory.mkdir(parents=True, exist_ok=True)
 
-    write_targets = [
-        plan.paths.system_file,
-        plan.paths.config_file,
-        plan.paths.wrapper,
-        plan.paths.env_script,
-    ]
-    if plan.paths.launch_agent is not None:
-        write_targets.append(plan.paths.launch_agent)
-    backups = [backup for target in write_targets if (backup := backup_existing(target))]
-
-    atomic_write_text(plan.paths.system_file, system_prompt)
-    atomic_write_text(plan.paths.config_file, render_config(plan, previous_user_environment))
-    atomic_write_text(plan.paths.wrapper, render_wrapper(plan), mode=0o755)
-    atomic_write_text(plan.paths.env_script, render_env_script(plan), mode=0o755)
-    if plan.paths.launch_agent is not None:
-        atomic_write_plist(plan.paths.launch_agent, render_launch_agent(plan))
-
-    activation = activate_current_session(plan) if plan.activate else []
+    backups, replaced = install_managed_files(plan, system_prompt, render_config(plan, previous_user_environment))
+    try:
+        activation = activate_current_session(plan) if plan.activate else []
+    except Exception as exc:
+        if isinstance(exc, KeysmithError) and "Environment rollback failed:" in str(exc):
+            raise KeysmithError(
+                f"{exc}\nManaged files were kept at the new version because the environment rollback was incomplete."
+            ) from exc
+        rollback_errors = rollback_replaced_files(replaced)
+        if rollback_errors:
+            raise KeysmithError(
+                f"{exc}\nFile rollback failed:\n" + "\n".join(rollback_errors)
+            ) from exc
+        raise
     return install_lines(plan, dry_run=False, backups=backups, activation=activation)
 
 
@@ -1002,8 +1205,11 @@ def uninstall_lines(paths: InstallPaths, dry_run: bool, removed: list[Path], act
     return lines
 
 
-def restore_windows_user_environment(paths: InstallPaths) -> list[str]:
-    config = load_saved_config(paths)
+def restore_windows_user_environment(
+    paths: InstallPaths,
+    config: dict[str, object] | None = None,
+) -> list[str]:
+    config = config or load_saved_config(paths)
     if not config or config.get("platform") != "Windows":
         return ["user environment: unchanged (managed Windows config missing)"]
     installed = config.get("environment")
@@ -1012,7 +1218,7 @@ def restore_windows_user_environment(paths: InstallPaths) -> list[str]:
         return ["user environment: unchanged (managed Windows environment backup missing)"]
 
     results: list[str] = []
-    changed = False
+    changes: list[tuple[str, dict[str, object] | None]] = []
     for key in MANAGED_ENV_KEYS:
         expected = installed.get(key)
         if not isinstance(expected, str):
@@ -1023,11 +1229,31 @@ def restore_windows_user_environment(paths: InstallPaths) -> list[str]:
             results.append(f"user environment {key}: unchanged (modified after install)")
             continue
         saved_entry = previous.get(key)
-        set_windows_user_env_entry(key, saved_entry if isinstance(saved_entry, dict) else None)
-        results.append(f"user environment {key}: restored")
-        changed = True
-    if changed:
-        broadcast_windows_environment_change()
+        changes.append((key, saved_entry if isinstance(saved_entry, dict) else None))
+    current_entries = {key: get_windows_user_env_entry(key) for key, _ in changes}
+    changed: list[str] = []
+    try:
+        for key, saved_entry in changes:
+            set_windows_user_env_entry(key, saved_entry)
+            changed.append(key)
+            results.append(f"user environment {key}: restored")
+        if changed:
+            broadcast_windows_environment_change()
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for key in reversed(changed):
+            try:
+                set_windows_user_env_entry(key, current_entries[key])
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{key}: {rollback_exc}")
+        try:
+            broadcast_windows_environment_change()
+        except Exception as rollback_exc:
+            rollback_errors.append(f"broadcast: {rollback_exc}")
+        detail = f"Windows environment restore failed: {exc}"
+        if rollback_errors:
+            detail += "\nEnvironment rollback failed:\n" + "\n".join(rollback_errors)
+        raise KeysmithError(detail) from exc
     return results
 
 
@@ -1036,13 +1262,43 @@ def unset_current_session_env(paths: InstallPaths) -> list[str]:
         return restore_windows_user_environment(paths)
     if platform.system() != "Darwin":
         return ["launchctl unsetenv: skipped (non-macOS)"]
-    results = []
-    for key in MANAGED_ENV_KEYS:
-        completed = subprocess.run(["launchctl", "unsetenv", key], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise KeysmithError(f"launchctl unsetenv failed for {key}: {detail}")
-        results.append(f"launchctl unsetenv {key}: ok")
+    results: list[str] = []
+    previous = {key: launchctl_getenv(key) for key in MANAGED_ENV_KEYS}
+    changed: list[str] = []
+    try:
+        for key in MANAGED_ENV_KEYS:
+            completed = subprocess.run(
+                ["launchctl", "unsetenv", key],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()
+                raise KeysmithError(f"launchctl unsetenv failed for {key}: {detail}")
+            changed.append(key)
+            results.append(f"launchctl unsetenv {key}: ok")
+    except Exception as exc:
+        rollback_errors: list[str] = []
+        for key in reversed(changed):
+            value = previous[key]
+            if value is None:
+                continue
+            completed = subprocess.run(
+                ["launchctl", "setenv", key, value],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()
+                rollback_errors.append(f"{key}: {detail or f'exit {completed.returncode}'}")
+        detail = f"macOS launchctl uninstall failed: {exc}"
+        if rollback_errors:
+            detail += "\nEnvironment rollback failed:\n" + "\n".join(rollback_errors)
+        raise KeysmithError(detail) from exc
     return results
 
 
@@ -1050,16 +1306,49 @@ def uninstall(paths: InstallPaths, yes: bool, dry_run_flag: bool, activate: bool
     dry_run = dry_run_flag or not yes
     if dry_run:
         return uninstall_lines(paths, dry_run=True, removed=[], activation=[])
-    activation = unset_current_session_env(paths) if activate else []
+    with operation_lock(paths):
+        return uninstall_locked(paths, activate)
+
+
+def uninstall_locked(paths: InstallPaths, activate: bool) -> list[str]:
     removed = []
     targets = [paths.system_file, paths.config_file, paths.wrapper, paths.env_script]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
-    for path in targets:
-        if path.exists():
-            backup = backup_existing(path)
-            if backup:
+    config = load_saved_config(paths) if platform.system() == "Windows" else None
+    moved: list[tuple[Path, Path]] = []
+    try:
+        for path in targets:
+            if path.exists():
+                backup = reserve_backup_path(path)
+                try:
+                    path.replace(backup)
+                except Exception:
+                    backup.unlink(missing_ok=True)
+                    raise
+                moved.append((path, backup))
                 removed.append(backup)
+        activation = (
+            restore_windows_user_environment(paths, config)
+            if activate and platform.system() == "Windows"
+            else unset_current_session_env(paths) if activate else []
+        )
+    except Exception as exc:
+        if isinstance(exc, KeysmithError) and "Environment rollback failed:" in str(exc):
+            raise KeysmithError(
+                f"{exc}\nManaged files remain in the listed backup paths because the environment rollback was incomplete."
+            ) from exc
+        rollback_errors: list[str] = []
+        for path, backup in reversed(moved):
+            try:
+                backup.replace(path)
+            except OSError as rollback_exc:
+                rollback_errors.append(f"{path}: {rollback_exc}")
+        if rollback_errors:
+            raise KeysmithError(
+                f"{exc}\nFile rollback failed:\n" + "\n".join(rollback_errors)
+            ) from exc
+        raise
     return uninstall_lines(paths, dry_run=False, removed=removed, activation=activation)
 
 
