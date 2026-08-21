@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import plistlib
 import py_compile
 import subprocess
@@ -211,6 +212,43 @@ def test_rendered_wrapper_cache_write_is_safe_under_concurrent_start(tmp_path):
     assert all(returncode == 0 for _, _, returncode in results), results
     assert len(list(paths.cache_dir.glob("zcode-keysmith-runtime-*.cjs"))) == 1
     assert not list(paths.cache_dir.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-only wrapper process semantics")
+def test_windows_wrapper_inherits_stdio_and_propagates_exit_code(tmp_path):
+    runtime = tmp_path / "zcode.cjs"
+    runtime.write_text(
+        "MARKER = '''customSystemPrompt:this.config.systemPrompt,language:'''\n"
+        "import sys\n"
+        "payload = sys.stdin.buffer.read()\n"
+        "sys.stdout.buffer.write(payload.upper())\n"
+        "sys.stdout.buffer.flush()\n"
+        "raise SystemExit(23)\n",
+        encoding="utf-8",
+    )
+    source = tmp_path / "source.md"
+    source.write_text("# system\n", encoding="utf-8")
+    paths = mod.build_paths(tmp_path / "managed")
+    paths.wrapper.parent.mkdir(parents=True)
+    plan = mod.InstallPlan(paths, source, runtime, Path(sys.executable), False)
+    paths.wrapper.write_text(mod.render_wrapper(plan), encoding="utf-8")
+
+    env = {
+        **os.environ,
+        "ZCODE_KEYSMITH_NODE_COMMAND": sys.executable,
+    }
+    completed = subprocess.run(
+        [sys.executable, str(paths.wrapper), "app-server", "--stdio"],
+        input=b"json-rpc-stdio",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=env,
+    )
+
+    assert completed.returncode == 23
+    assert completed.stdout == b"JSON-RPC-STDIO"
+    assert completed.stderr == b""
 
 
 def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatch):
