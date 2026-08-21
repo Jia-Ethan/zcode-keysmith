@@ -176,6 +176,7 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     assert "ZCODE_KEYSMITH_CACHE_DIR" in wrapper_text
     assert json.dumps(str(paths.cache_dir), ensure_ascii=False) in wrapper_text
     assert 'if os.name == "nt":' in wrapper_text
+    assert "acquire_cache_lock" in wrapper_text
     assert "subprocess.Popen" in wrapper_text
     assert "proc.wait()" in wrapper_text
     # Popen inherits stdin/stdout/stderr directly for stable JSON-RPC communication
@@ -213,6 +214,7 @@ def test_rendered_wrapper_cache_write_is_safe_under_concurrent_start(tmp_path):
     assert all(returncode == 0 for _, _, returncode in results), results
     assert len(list(paths.cache_dir.glob("zcode-keysmith-runtime-*.cjs"))) == 1
     assert not list(paths.cache_dir.glob("*.tmp"))
+    assert len(list(paths.cache_dir.glob(".*.lock"))) == 1
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only wrapper process semantics")

@@ -676,6 +676,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 
 ORIGINAL_RUNTIME = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_ORIGINAL") or {runtime_json})
 SYSTEM_FILE = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_SYSTEM_FILE") or {system_file_json})
@@ -684,6 +685,43 @@ PATCH_NEEDLE = {patch_needle_json}
 CACHE_DIR = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_CACHE_DIR") or {cache_dir_json})
 LOG_DIR = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_LOG_DIR") or {log_dir_json})
 LOG_FILE = LOG_DIR / "wrapper-start.jsonl"
+
+
+def acquire_cache_lock(path: pathlib.Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = path.open("a+b")
+    if os.name == "nt":
+        import msvcrt
+
+        if path.stat().st_size == 0:
+            handle.write(b"\\0")
+            handle.flush()
+        handle.seek(0)
+        while True:
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return handle
+            except OSError:
+                time.sleep(0.02)
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def release_cache_lock(handle) -> None:
+    try:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def system_prompt_expression() -> str:
@@ -705,23 +743,27 @@ def patched_runtime_path() -> pathlib.Path:
     digest = hashlib.sha256((str(ORIGINAL_RUNTIME) + "\\0" + original + "\\0" + replacement).encode("utf-8")).hexdigest()[:16]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     path = CACHE_DIR / f"zcode-keysmith-runtime-{{digest}}.cjs"
-    if not path.exists() or path.read_text(encoding="utf-8", errors="ignore") != patched:
-        tmp = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w",
-                encoding="utf-8",
-                dir=str(CACHE_DIR),
-                prefix=f".{{path.name}}.",
-                suffix=".tmp",
-                delete=False,
-            ) as handle:
-                handle.write(patched)
-                tmp = pathlib.Path(handle.name)
-            tmp.replace(path)
-        finally:
-            if tmp is not None:
-                tmp.unlink(missing_ok=True)
+    lock = acquire_cache_lock(path.with_name(f".{{path.name}}.lock"))
+    try:
+        if not path.exists() or path.read_text(encoding="utf-8", errors="ignore") != patched:
+            tmp = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    "w",
+                    encoding="utf-8",
+                    dir=str(CACHE_DIR),
+                    prefix=f".{{path.name}}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as handle:
+                    handle.write(patched)
+                    tmp = pathlib.Path(handle.name)
+                tmp.replace(path)
+            finally:
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
+    finally:
+        release_cache_lock(lock)
     return path
 
 
