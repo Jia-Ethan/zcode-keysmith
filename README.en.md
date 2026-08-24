@@ -100,4 +100,4 @@ Documented support is macOS with a local `ZCode.app`, and Windows 10/11 with a l
 
 ### Advanced docs, contributing, and the series
 
-Design, fields, and uninstall leftovers: [`docs/reference.md`](docs/reference.md). Agent install: [`docs/agent-install.md`](docs/agent-install.md). Before a patch, run `python3 -m py_compile zcode-keysmith.py` and `python3 -m pytest tests -q`. The installer never reads API keys. Community: [LINUX DO](https://linux.do). The core series is only the four projects in the table above.
+Design, fields, and uninstall leftovers: [`docs/reference.md`](docs/reference.md). Agent install: [`docs/agent-install.md`](docs/agent-install.md). Before a patch, run `python3 -m py_compile zcode-keysmith.py` and `python3 -m pytest tests -q`. The installer never reads API keys. Official feedback: [GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7). Community: [LINUX DO](https://linux.do). The core series is only the four projects in the table above.

@@ -106,4 +106,4 @@ Windows 也可以把上面的 `python3` 换成 `py`。macOS 卸载把五个受�
 
 ### 进阶文档 · 贡献 · 系列
 
-原理、字段与卸载残留见 [`docs/reference.md`](docs/reference.md)；智能体安装见 [`docs/agent-install.md`](docs/agent-install.md)。提交前运行 `python3 -m py_compile zcode-keysmith.py` 与 `python3 -m pytest tests -q`。安装器不读取 API key。社区：[LINUX DO](https://linux.do)。核心系列只有对照表中的四个项目。
+原理、字段与卸载残留见 [`docs/reference.md`](docs/reference.md)；智能体安装见 [`docs/agent-install.md`](docs/agent-install.md)。提交前运行 `python3 -m py_compile zcode-keysmith.py` 与 `python3 -m pytest tests -q`。安装器不读取 API key。官方反馈：[GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7)；社区交流：[LINUX DO](https://linux.do)。核心系列只有对照表中的四个项目。
