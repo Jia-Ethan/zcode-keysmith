@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- 修复 Windows wrapper：`subprocess.Popen` 未显式传入被重定向的 `stdin/stdout/stderr`，导致 ZCode 通过管道启动 agent-server 时 JSON-RPC 断流（表现为 agent 断线、模型列表不可用）。
+
 ## [0.1.1] - 2026-08-22
 
 - 新增 Windows 10/11 安装、ZCode 自动发现、当前用户环境激活与安全卸载。

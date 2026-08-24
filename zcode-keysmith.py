@@ -793,10 +793,16 @@ def main() -> int:
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
     if os.name == "nt":
-        # Use Popen to inherit stdin/stdout/stderr directly for stable long-running JSON-RPC communication
+        # On Windows, default Popen inheritance does not reliably attach the
+        # parent's redirected stdio pipes (ZCode spawns this wrapper with pipes).
+        # Pass the handles explicitly so agent JSON-RPC stays connected.
         proc = subprocess.Popen(
             [NODE_COMMAND, str(runtime), *args],
             env=env,
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+            close_fds=False,
         )
         return proc.wait()
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
