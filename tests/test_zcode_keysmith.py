@@ -988,3 +988,148 @@ def test_windows_uninstall_rolls_back_prior_moves_when_file_backup_fails(tmp_pat
 
     assert {path: path.read_text(encoding="utf-8") for path in contents} == contents
     assert not list(paths.managed_dir.rglob("*.bak_*"))
+
+
+def _isolated_cli_args(tmp_path, command, extra=None):
+    runtime = tmp_path / "zcode.cjs"
+    make_runtime(runtime)
+    source = tmp_path / "source.md"
+    source.write_text("# system\n", encoding="utf-8")
+    node_command = tmp_path / "node"
+    node_command.write_text("#!/bin/sh\n", encoding="utf-8")
+    node_command.chmod(0o755)
+    managed = tmp_path / "managed"
+    launch_agent = tmp_path / "agent.plist"
+    args = [
+        command,
+        "--managed-dir", str(managed),
+        "--launch-agent", str(launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--json",
+    ]
+    if command == "install":
+        args[1:1] = ["--system-file", str(source)]
+    if extra:
+        args.extend(extra)
+    return args, managed, runtime, node_command, source, launch_agent
+
+
+def test_json_install_dry_run_does_not_write(tmp_path, capsys):
+    args, managed, *_rest = _isolated_cli_args(tmp_path, "install", ["--dry-run"])
+    code = mod.main(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["schema"] == "zcode-keysmith/v1"
+    assert payload["operation"] == "install"
+    assert payload["mode"] == "preview"
+    assert payload["ok"] is True
+    assert payload["write"] is False
+    assert not managed.exists()
+
+
+def test_json_install_execute_and_doctor(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    args, managed, runtime, node_command, source, launch_agent = _isolated_cli_args(
+        tmp_path, "install", ["--yes", "--no-activate"]
+    )
+    code = mod.main(args)
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["mode"] == "execute"
+    assert payload["ok"] is True
+    assert (managed / "system-role.md").is_file()
+
+    doctor_code = mod.main([
+        "doctor",
+        "--managed-dir", str(managed),
+        "--launch-agent", str(launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--json",
+    ])
+    doctor = json.loads(capsys.readouterr().out)
+    assert doctor_code == 0
+    assert doctor["operation"] == "doctor"
+    assert doctor["managed"]["dir"] == str(managed)
+    assert doctor["managed"]["wrapper_exists"] is True
+    assert doctor["runtime"]["path"] == str(runtime)
+    assert doctor["env"]["ZCODE_KEYSMITH_SYSTEM_FILE"]["expected"].endswith("system-role.md")
+
+
+def test_json_verify_and_uninstall_preview(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    args, managed, runtime, node_command, source, launch_agent = _isolated_cli_args(
+        tmp_path, "install", ["--yes", "--no-activate"]
+    )
+    assert mod.main(args) == 0
+    capsys.readouterr()
+
+    verify_code = mod.main([
+        "verify",
+        "--managed-dir", str(managed),
+        "--launch-agent", str(launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--no-smoke",
+        "--json",
+    ])
+    verify = json.loads(capsys.readouterr().out)
+    assert verify_code == 0
+    assert verify["operation"] == "verify"
+    assert verify["wrapper_exists"] is True
+    assert verify["wrapper_smoke_detail"] == "skipped"
+
+    uninstall_code = mod.main([
+        "uninstall",
+        "--managed-dir", str(managed),
+        "--launch-agent", str(launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--dry-run",
+        "--json",
+    ])
+    uninstall = json.loads(capsys.readouterr().out)
+    assert uninstall_code == 0
+    assert uninstall["mode"] == "preview"
+    assert uninstall["write"] is False
+    assert (managed / "system-role.md").exists()
+    assert "backups" in uninstall
+
+
+def test_json_error_is_json_not_bare_text(tmp_path, capsys):
+    runtime = tmp_path / "zcode.cjs"
+    runtime.write_text("not-a-runtime\n", encoding="utf-8")
+    source = tmp_path / "source.md"
+    source.write_text("# system\n", encoding="utf-8")
+    node_command = tmp_path / "node"
+    node_command.write_text("#!/bin/sh\n", encoding="utf-8")
+    node_command.chmod(0o755)
+    code = mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(tmp_path / "managed"),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--dry-run",
+        "--json",
+    ])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert code == 2
+    assert payload["ok"] is False
+    assert payload["schema"] == "zcode-keysmith/v1"
+    assert payload["error"]
+    assert captured.err == ""
+
+
+def test_json_usage_error(capsys):
+    code = mod.main(["install", "--yes", "--bogus", "--json"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    assert code == 2
+    assert payload["ok"] is False
+    assert payload["operation"] == "install"
+    assert "usage:" not in out.lower()

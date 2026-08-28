@@ -31,6 +31,8 @@ from typing import Iterable
 REPO_ROOT = Path(__file__).resolve().parent
 __version__ = "0.1.1"
 VERSION = __version__
+JSON_SCHEMA = "zcode-keysmith/v1"
+_LAST_USAGE_ERROR: list[str | None] = [None]
 DEFAULT_SOURCE_SYSTEM_FILE = REPO_ROOT / "examples" / "system-role.md"
 DEFAULT_MANAGED_DIR = Path.home() / ".zcode-keysmith"
 DEFAULT_SYSTEM_FILE_NAME = "system-role.md"
@@ -1394,9 +1396,226 @@ def uninstall_locked(paths: InstallPaths, activate: bool) -> list[str]:
     return uninstall_lines(paths, dry_run=False, removed=removed, activation=activation)
 
 
+class _ContractArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that records usage errors so ``--json`` callers get JSON."""
+
+    def error(self, message: str) -> None:
+        _LAST_USAGE_ERROR[0] = message
+        super().error(message)
+
+
+def _json_dump(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def _json_report(
+    operation: str,
+    mode: str,
+    ok: bool,
+    exit_status: int,
+    *,
+    actions: list[dict[str, str]] | None = None,
+    warnings: list[str] | None = None,
+    blockers: list[str] | None = None,
+    error: str | None = None,
+    extra: dict[str, object] | None = None,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema": JSON_SCHEMA,
+        "operation": operation,
+        "mode": mode,
+        "ok": ok,
+        "actions": actions or [],
+        "warnings": warnings or [],
+        "blockers": blockers or [],
+        "exit_status": exit_status,
+        "error": error,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _json_action(action: str, path: Path | str, detail: str = "") -> dict[str, str]:
+    return {"action": action, "path": str(path), "detail": detail}
+
+
+def list_backup_files(paths: InstallPaths) -> list[dict[str, str]]:
+    if not paths.managed_dir.exists():
+        return []
+    backups = []
+    for item in sorted(paths.managed_dir.rglob("*")):
+        if item.is_file() and ".bak_" in item.name:
+            backups.append({"path": str(item), "name": item.name})
+    return backups
+
+
+def install_report(plan: InstallPlan, dry_run: bool, backups: list[Path], activation: list[str]) -> dict[str, object]:
+    action_name = "plan" if dry_run else "write"
+    actions = [
+        _json_action(action_name, plan.paths.system_file, "system_file"),
+        _json_action(action_name, plan.paths.config_file, "config_file"),
+        _json_action(action_name, plan.paths.wrapper, "wrapper"),
+        _json_action(action_name, plan.paths.env_script, "env_script"),
+    ]
+    if plan.paths.launch_agent is not None:
+        actions.append(_json_action(action_name, plan.paths.launch_agent, "launch_agent"))
+    for backup in backups:
+        actions.append(_json_action("backup", backup, "backup"))
+    return _json_report(
+        "install",
+        "preview" if dry_run else "execute",
+        True,
+        0,
+        actions=actions,
+        extra={
+            "managed_dir": str(plan.paths.managed_dir),
+            "source_system_file": str(plan.source_system_file),
+            "zcode_runtime": str(plan.zcode_runtime),
+            "node_command": str(plan.node_command),
+            "activate": plan.activate,
+            "write": not dry_run,
+            "activation": activation,
+            "backups": [str(path) for path in backups],
+            "zcode_running": is_zcode_running(),
+        },
+    )
+
+
+def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -> dict[str, object]:
+    prompt_hash = file_sha256(paths.system_file)
+    runtime_patchable = False
+    if zcode_runtime.exists() and zcode_runtime.is_file():
+        try:
+            runtime_patchable = PATCH_NEEDLE in zcode_runtime.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            runtime_patchable = False
+    expected_plan = InstallPlan(
+        paths=paths,
+        source_system_file=DEFAULT_SOURCE_SYSTEM_FILE,
+        zcode_runtime=zcode_runtime,
+        node_command=node_command,
+        activate=False,
+    )
+    expected_env = env_values(expected_plan)
+    env: dict[str, object] = {}
+    for key, expected in expected_env.items():
+        current = os.environ.get(key)
+        persistent_value = persistent_environment_value(key)
+        if persistent_value == expected:
+            persistent = "matches"
+        elif not persistent_value:
+            persistent = "not_set"
+        else:
+            persistent = "different"
+        env[key] = {
+            "session": "set" if current else "not_set",
+            "persistent": persistent,
+            "expected": expected,
+        }
+    managed = {
+        "dir": str(paths.managed_dir),
+        "system_file": str(paths.system_file),
+        "system_file_exists": paths.system_file.exists(),
+        "system_file_sha256": prompt_hash,
+        "config_file": str(paths.config_file),
+        "config_file_exists": paths.config_file.exists(),
+        "wrapper": str(paths.wrapper),
+        "wrapper_exists": paths.wrapper.exists(),
+        "env_script": str(paths.env_script),
+        "env_script_exists": paths.env_script.exists(),
+        "launch_agent": str(paths.launch_agent) if paths.launch_agent else None,
+        "launch_agent_exists": bool(paths.launch_agent and paths.launch_agent.exists()),
+        "cache_dir": str(paths.cache_dir),
+        "wrapper_log": str(paths.wrapper_log),
+    }
+    runtime = {
+        "path": str(zcode_runtime),
+        "exists": zcode_runtime.exists(),
+        "patchable": runtime_patchable,
+        "node_command": str(node_command),
+        "node_command_exists": node_command.exists(),
+    }
+    return _json_report(
+        "doctor",
+        "preview",
+        True,
+        0,
+        extra={
+            "managed": managed,
+            "runtime": runtime,
+            "env": env,
+            "backups": list_backup_files(paths),
+            "app_bundle_modified": False,
+        },
+    )
+
+
+def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, smoke: bool = True) -> dict[str, object]:
+    prompt_hash = file_sha256(paths.system_file)
+    zcode_app = zcode_app_from_runtime(zcode_runtime)
+    runtime_patchable = False
+    if zcode_runtime.exists() and zcode_runtime.is_file():
+        try:
+            runtime_patchable = PATCH_NEEDLE in zcode_runtime.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            runtime_patchable = False
+    smoke_ok, smoke_detail = run_wrapper_smoke(paths) if smoke else (False, "skipped")
+    last_invocation = read_last_wrapper_invocation(paths)
+    return _json_report(
+        "verify",
+        "preview",
+        True,
+        0,
+        extra={
+            "managed_dir": str(paths.managed_dir),
+            "system_file_exists": paths.system_file.exists(),
+            "system_file_sha256": prompt_hash,
+            "wrapper_exists": paths.wrapper.exists(),
+            "wrapper_smoke": smoke_ok,
+            "wrapper_smoke_detail": smoke_detail,
+            "wrapper_log": str(paths.wrapper_log),
+            "wrapper_invoked": last_invocation is not None,
+            "last_wrapper_start": last_invocation.get("started_at") if last_invocation else None,
+            "zcode_app": str(zcode_app) if zcode_app else None,
+            "zcode_agent_override_supported": app_supports_agent_server_override(zcode_app),
+            "zcode_runtime_exists": zcode_runtime.exists(),
+            "zcode_runtime_patchable": runtime_patchable,
+            "node_command_exists": node_command.exists(),
+            "zcode_running": is_zcode_running(),
+            "backups": list_backup_files(paths),
+        },
+    )
+
+
+def uninstall_report(paths: InstallPaths, dry_run: bool, removed: list[Path], activation: list[str]) -> dict[str, object]:
+    action_name = "plan" if dry_run else "remove"
+    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.env_script]
+    if paths.launch_agent is not None:
+        targets.append(paths.launch_agent)
+    actions = [_json_action(action_name, path, "target") for path in targets]
+    for path in removed:
+        actions.append(_json_action("removed", path, "removed"))
+    return _json_report(
+        "uninstall",
+        "preview" if dry_run else "execute",
+        True,
+        0,
+        actions=actions,
+        extra={
+            "managed_dir": str(paths.managed_dir),
+            "write": not dry_run,
+            "removed": [str(path) for path in removed],
+            "activation": activation,
+            "backups": list_backup_files(paths),
+        },
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Install or inspect zcode-keysmith managed ZCode App system-role entrypoint.")
+    parser = _ContractArgumentParser(description="Install or inspect zcode-keysmith managed ZCode App system-role entrypoint.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    parser.add_argument("--json", action="store_true", help="Emit stable JSON (zcode-keysmith/v1)")
     sub = parser.add_subparsers(dest="command")
 
     install_parser = sub.add_parser("install", help="Install managed ZCode App wrapper and system-role file")
@@ -1409,6 +1628,7 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser.add_argument("--dry-run", action="store_true", help="Preview paths and checks without writing")
     install_parser.add_argument("--yes", action="store_true", help="Allow writing files. --dry-run wins if both are provided")
     install_parser.add_argument("--no-activate", action="store_true", help="Write files without activating the persistent environment")
+    install_parser.add_argument("--json", action="store_true", help="Emit stable JSON (zcode-keysmith/v1)")
 
     doctor_parser = sub.add_parser("doctor", help="Inspect managed install state")
     doctor_parser.add_argument("--managed-dir", default=str(DEFAULT_MANAGED_DIR))
@@ -1416,6 +1636,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--zcode-app", default=None)
     doctor_parser.add_argument("--zcode-runtime", default=None)
     doctor_parser.add_argument("--node-command", default=None)
+    doctor_parser.add_argument("--json", action="store_true", help="Emit stable JSON (zcode-keysmith/v1)")
 
     verify_parser = sub.add_parser("verify", help="Run local wrapper/runtime verification without sending model requests")
     verify_parser.add_argument("--managed-dir", default=str(DEFAULT_MANAGED_DIR))
@@ -1424,6 +1645,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--zcode-runtime", default=None)
     verify_parser.add_argument("--node-command", default=None)
     verify_parser.add_argument("--no-smoke", action="store_true", help="Skip local wrapper --help smoke test")
+    verify_parser.add_argument("--json", action="store_true", help="Emit stable JSON (zcode-keysmith/v1)")
 
     uninstall_parser = sub.add_parser("uninstall", help="Back up managed files and unset current environment")
     uninstall_parser.add_argument("--managed-dir", default=str(DEFAULT_MANAGED_DIR))
@@ -1434,36 +1656,116 @@ def build_parser() -> argparse.ArgumentParser:
     uninstall_parser.add_argument("--dry-run", action="store_true")
     uninstall_parser.add_argument("--yes", action="store_true")
     uninstall_parser.add_argument("--no-activate", action="store_true")
+    uninstall_parser.add_argument("--json", action="store_true", help="Emit stable JSON (zcode-keysmith/v1)")
 
     return parser
 
 
+def _usage_error_mode(argv: list[str]) -> str:
+    return "preview" if "--yes" not in argv or "--dry-run" in argv else "execute"
+
+
+def _operation_from_argv(argv: list[str]) -> str:
+    for item in argv:
+        if item in {"install", "doctor", "verify", "uninstall"}:
+            return item
+    return "unknown"
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    argv_list = list(sys.argv[1:] if argv is None else argv)
+    json_requested = "--json" in argv_list
+    if json_requested:
+        operation = _operation_from_argv(argv_list)
+        try:
+            args = parser.parse_args(argv_list)
+        except SystemExit as exit_request:
+            status = exit_request.code if isinstance(exit_request.code, int) else 2
+            if status == 0:
+                raise
+            _json_dump(
+                _json_report(
+                    operation,
+                    _usage_error_mode(argv_list),
+                    False,
+                    status,
+                    error=_LAST_USAGE_ERROR[0] or "argument validation failed",
+                    blockers=[_LAST_USAGE_ERROR[0] or "argument validation failed"],
+                )
+            )
+            return status
+    else:
+        args = parser.parse_args(argv_list)
+
+    use_json = json_requested or bool(getattr(args, "json", False))
     try:
         command = args.command or "doctor"
         if command == "install":
             plan = build_install_plan(args)
-            print("\n".join(install(plan, yes=args.yes, dry_run_flag=args.dry_run)))
+            dry_run = args.dry_run or not args.yes
+            lines = install(plan, yes=args.yes, dry_run_flag=args.dry_run)
+            if use_json:
+                backups = [Path(line.split(": ", 1)[1]) for line in lines if line.startswith("backup: ")]
+                activation = [line for line in lines if line.startswith("launchctl ") or line.startswith("user environment:")]
+                _json_dump(install_report(plan, dry_run, backups, activation))
+                return 0
+            print("\n".join(lines))
             return 0
         if command == "doctor":
             paths = build_paths(expand_path(args.managed_dir), expand_path(args.launch_agent) if args.launch_agent else None)
             zcode_runtime, node_command = runtime_node_from_args(args)
+            if use_json:
+                _json_dump(doctor_report(paths, zcode_runtime, node_command))
+                return 0
             print("\n".join(doctor_lines(paths, zcode_runtime, node_command)))
             return 0
         if command == "verify":
             paths = build_paths(expand_path(args.managed_dir), expand_path(args.launch_agent) if args.launch_agent else None)
             zcode_runtime, node_command = runtime_node_from_args(args)
+            if use_json:
+                _json_dump(verify_report(paths, zcode_runtime, node_command, smoke=not args.no_smoke))
+                return 0
             print("\n".join(verify_lines(paths, zcode_runtime, node_command, smoke=not args.no_smoke)))
             return 0
         if command == "uninstall":
             paths = build_paths(expand_path(args.managed_dir), expand_path(args.launch_agent) if args.launch_agent else None)
-            print("\n".join(uninstall(paths, yes=args.yes, dry_run_flag=args.dry_run, activate=not args.no_activate)))
+            dry_run = args.dry_run or not args.yes
+            lines = uninstall(paths, yes=args.yes, dry_run_flag=args.dry_run, activate=not args.no_activate)
+            if use_json:
+                removed = [Path(line.split(": ", 1)[1]) for line in lines if line.startswith("removed: ")]
+                activation = [line for line in lines if line.startswith("launchctl ") or line.startswith("user environment:")]
+                _json_dump(uninstall_report(paths, dry_run, removed, activation))
+                return 0
+            print("\n".join(lines))
             return 0
+        if use_json:
+            _json_dump(
+                _json_report(
+                    "unknown",
+                    "preview",
+                    False,
+                    1,
+                    error="missing command",
+                    blockers=["missing command"],
+                )
+            )
+            return 1
         parser.print_help()
         return 1
     except KeysmithError as exc:
+        if use_json:
+            _json_dump(
+                _json_report(
+                    getattr(args, "command", None) or "unknown",
+                    _usage_error_mode(argv_list),
+                    False,
+                    2,
+                    error=str(exc),
+                    blockers=[str(exc)],
+                )
+            )
+            return 2
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- `--json` machine-readable contract (`zcode-keysmith/v1`) for `install`,
+  `doctor`, `verify`, and `uninstall`. JSON payloads are language-neutral.
+  Argument and installer errors also emit JSON when `--json` is set.
+
 ## [0.1.1] - 2026-08-22
 
 - 新增 Windows 10/11 安装、ZCode 自动发现、当前用户环境激活与安全卸载。
