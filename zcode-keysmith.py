@@ -680,6 +680,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 ORIGINAL_RUNTIME = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_ORIGINAL") or {runtime_json})
@@ -799,12 +800,61 @@ def main() -> int:
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
     if os.name == "nt":
-        # Use Popen to inherit stdin/stdout/stderr directly for stable long-running JSON-RPC communication
+        # Explicit pipe forwarding with pump threads. Robust against Windows
+        # handle-inheritance quirks (Python 3.14 subprocess explicit handle
+        # list) that can leave the Electron-as-Node child without stdio.
         proc = subprocess.Popen(
             [NODE_COMMAND, str(runtime), *args],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
             env=env,
         )
-        return proc.wait()
+
+        def pump_stdin():
+            source = getattr(sys.stdin, "buffer", None)
+            if source is None:
+                return
+            read_available = getattr(source, "read1", source.read)
+            try:
+                while True:
+                    chunk = read_available(65536)
+                    if not chunk:
+                        break
+                    proc.stdin.write(chunk)
+                    try:
+                        proc.stdin.flush()
+                    except Exception:
+                        break
+            except Exception:
+                pass
+            finally:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
+
+        def pump_stdout():
+            try:
+                while True:
+                    chunk = proc.stdout.read1(65536)
+                    if not chunk:
+                        break
+                    sys.stdout.buffer.write(chunk)
+                    sys.stdout.buffer.flush()
+            except Exception:
+                pass
+
+        reader = threading.Thread(target=pump_stdin, daemon=True)
+        writer = threading.Thread(target=pump_stdout, daemon=True)
+        reader.start()
+        writer.start()
+        exit_code = proc.wait()
+        writer.join(timeout=5)
+        try:
+            sys.stdout.buffer.flush()
+        except Exception:
+            pass
+        return exit_code
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
     return 127
 
