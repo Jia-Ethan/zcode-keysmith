@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.2] - 2026-08-29
 
-- `--json` machine-readable contract (`zcode-keysmith/v1`) for `install`,
-  `doctor`, `verify`, and `uninstall`. JSON payloads are language-neutral.
-  Argument and installer errors also emit JSON when `--json` is set.
+- 增加桌面客户端，让安装、检查和卸载更直观、更省心。
+- 增加统一的机器可读输出，便于可靠地查看和管理状态。
+- 提升 macOS 与 Windows 下的稳定性和兼容性。
 
 ## [0.1.1] - 2026-08-22
 
