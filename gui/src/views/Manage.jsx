@@ -16,6 +16,8 @@ export function Manage() {
   const { cliInfo, operationInProgress } = useAppState();
   const [managedDir, setManagedDir] = React.useState(() => getSettings().defaultManagedDir || "");
   const [status, setStatus] = React.useState(null);
+  // Keep the exact options used for the preview so editing the field later
+  // cannot redirect the destructive confirmation to another directory.
   const [pending, setPending] = React.useState(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
@@ -37,10 +39,11 @@ export function Manage() {
   React.useEffect(() => { reload(); }, [reload]);
 
   const start = async () => {
+    const previewOptions = { managedDir: managedDir.trim() };
     setBusy(true);
     try {
-      const preview = await previewUninstall(options);
-      setPending(preview);
+      const preview = await previewUninstall(previewOptions);
+      setPending({ options: previewOptions, report: preview });
       setConfirmOpen(true);
     } catch (err) {
       toast.error(err?.message || t("manage.failed"));
@@ -50,9 +53,10 @@ export function Manage() {
   };
 
   const confirm = async () => {
+    if (!pending) return;
     setBusy(true);
     try {
-      const report = await executeUninstall(options);
+      const report = await executeUninstall(pending.options);
       setDone(report);
       setConfirmOpen(false);
       setPending(null);
@@ -96,7 +100,7 @@ export function Manage() {
       {pending && (
         <section className="card-glass mt-4 p-5">
           <h2 className="text-sm font-medium">{t("manage.previewPlan")}</h2>
-          <div className="mt-3"><ReportView report={pending} showTarget={false} /></div>
+          <div className="mt-3"><ReportView report={pending.report} showTarget={false} /></div>
         </section>
       )}
       {done && (

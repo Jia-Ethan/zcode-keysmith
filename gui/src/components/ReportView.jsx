@@ -17,6 +17,23 @@ const ACTION_VARIANT = {
   restore: "green",
 };
 
+/** Accept both the legacy CLI string list and structured backup records. */
+export function normalizeBackup(backup) {
+  if (typeof backup === "string") {
+    return { path: backup, sizeBytes: null, sha256: "", created: "" };
+  }
+  if (!backup || typeof backup !== "object") {
+    return { path: "", sizeBytes: null, sha256: "", created: "" };
+  }
+  return {
+    path: [backup.backupPath, backup.path, backup.target, backup.name]
+      .find((value) => typeof value === "string" && value) || "",
+    sizeBytes: backup.sizeBytes ?? null,
+    sha256: typeof backup.sha256 === "string" ? backup.sha256 : "",
+    created: typeof backup.created === "string" ? backup.created : "",
+  };
+}
+
 function actionLabel(t, action) {
   const key = `common.action${action[0]?.toUpperCase() ?? ""}${action.slice(1)}`;
   const translated = t(key);
@@ -68,7 +85,7 @@ export function ReportView({ report, showTarget = true }) {
         </section>
       )}
 
-      {report.actions.length > 0 && (
+      {Array.isArray(report.actions) && report.actions.length > 0 && (
         <section>
           <h3 className="text-xs font-medium text-muted-foreground">{t("deploy.plannedActions")}</h3>
           <ul className="mt-1.5 space-y-1.5">
@@ -87,27 +104,30 @@ export function ReportView({ report, showTarget = true }) {
         </section>
       )}
 
-      {report.backups.length > 0 && (
+      {Array.isArray(report.backups) && report.backups.length > 0 && (
         <section>
           <h3 className="text-xs font-medium text-muted-foreground">{t("deploy.plannedBackups")}</h3>
           <ul className="mt-1.5 space-y-1.5">
-            {report.backups.map((backup, index) => (
+            {report.backups.map((backup, index) => {
+              const normalized = normalizeBackup(backup);
+              return (
               <li key={index} className="text-xs">
                 <div className="break-all font-mono text-secondary-foreground">
-                  {backup.backupPath || `${backup.target} (${t("deploy.plannedBackups").toLowerCase()})`}
+                  {normalized.path || t("common.unknown")}
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-muted-foreground">
-                  {backup.sizeBytes != null && <span>{backup.sizeBytes} {t("deploy.bytes")}</span>}
-                  {backup.sha256 && <span className="break-all">{backup.sha256.slice(0, 16)}…</span>}
-                  {backup.created && <span>{backup.created}</span>}
+                  {normalized.sizeBytes != null && <span>{normalized.sizeBytes} {t("deploy.bytes")}</span>}
+                  {normalized.sha256 && <span className="break-all">{normalized.sha256.slice(0, 16)}...</span>}
+                  {normalized.created && <span>{normalized.created}</span>}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </section>
       )}
 
-      {report.warnings.length > 0 && (
+      {Array.isArray(report.warnings) && report.warnings.length > 0 && (
         <section>
           <h3 className="text-xs font-medium text-warn">{t("deploy.warnings")}</h3>
           <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-xs text-secondary-foreground">
@@ -116,7 +136,7 @@ export function ReportView({ report, showTarget = true }) {
         </section>
       )}
 
-      {report.blockers.length > 0 && (
+      {Array.isArray(report.blockers) && report.blockers.length > 0 && (
         <section>
           <h3 className="text-xs font-medium text-danger">{t("deploy.blockers")}</h3>
           <ul className="mt-1.5 list-inside list-disc space-y-0.5 text-xs text-danger">

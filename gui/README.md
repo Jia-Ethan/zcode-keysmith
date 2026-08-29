@@ -33,7 +33,7 @@ PyInstaller 是构建期依赖，不进入 Node/Rust 运行时依赖：
 python3 -m venv src-tauri/target/sidecar-venv
 src-tauri/target/sidecar-venv/bin/python -m pip install -r requirements-build.txt
 PYTHON="$PWD/src-tauri/target/sidecar-venv/bin/python" npm run build:sidecar
-npm run tauri build
+npm run bundle
 ```
 
 `npm run build:sidecar` 只支持原生构建，并按当前主机生成 Tauri external binary：

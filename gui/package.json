@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:sidecar": "node scripts/build-sidecar.mjs",
-    "bundle": "npm run build:sidecar && tauri build",
+    "bundle": "npm run build:sidecar && tauri build --config src-tauri/tauri.bundle.conf.json",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run"

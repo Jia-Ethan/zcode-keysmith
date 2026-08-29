@@ -1,6 +1,5 @@
 {
   "bundle": {
-    "targets": ["app", "dmg"],
-    "externalBin": ["binaries/zcode-keysmith-cli"]
+    "targets": ["app", "dmg"]
   }
 }

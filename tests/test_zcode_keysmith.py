@@ -47,6 +47,26 @@ def test_cli_reports_release_version():
     assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 
 
+def test_cli_reports_version_as_json(capsys):
+    code = mod.main(["--version", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert payload["schema"] == mod.JSON_SCHEMA
+    assert payload["operation"] == "version"
+    assert payload["version"] == mod.VERSION
+
+
+def test_json_without_command_returns_stable_error(capsys):
+    code = mod.main(["--json"])
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 1
+    assert payload["operation"] == "unknown"
+    assert payload["ok"] is False
+    assert payload["error"] == "missing command"
+
+
 def test_normalizes_glm_chatml_system_wrapper_for_installed_prompt():
     raw = "<|im_start|>system:<project_instructions>\n# Body\n<|im_end|>\n"
 
@@ -282,6 +302,16 @@ def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatc
     assert "TEST_OPENAI_KEY_REDACTED" not in out
 
 
+def test_launchctl_probe_is_optional_when_darwin_command_is_missing(monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("launchctl")
+
+    monkeypatch.setattr(mod.subprocess, "run", missing)
+    assert mod.launchctl_getenv("ZCODE_KEYSMITH_SYSTEM_FILE") is None
+
+
 def test_resolve_zcode_app_path_derives_runtime_and_node_command(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     app = tmp_path / "ZCode.app"
@@ -451,6 +481,70 @@ def test_windows_environment_uses_python_and_wrapper_argument(tmp_path, monkeypa
     assert args == [str(paths.wrapper), "app-server", "--stdio"]
     assert paths.env_script.name == "zcode-keysmith-env.ps1"
     assert paths.launch_agent is None
+
+
+def test_windows_activation_lines_are_preserved_in_json_report(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod, "get_windows_user_env_entry", lambda key: None)
+    monkeypatch.setattr(mod, "set_windows_user_env_entry", lambda key, entry: None)
+    monkeypatch.setattr(mod, "windows_string_env_entry", lambda value: {"value": value, "registry_type": 1})
+    monkeypatch.setattr(mod, "broadcast_windows_environment_change", lambda: None)
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    args, managed, runtime, node_command, source, _ = _isolated_cli_args(
+        tmp_path, "install", ["--yes"]
+    )
+    code = mod.main(args)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert len(payload["activation"]) == len(mod.MANAGED_ENV_KEYS)
+    assert all(item.startswith("user environment ") for item in payload["activation"])
+
+
+def test_frozen_environment_uses_self_dispatch_and_embedded_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(mod.sys, "_MEIPASS", str(tmp_path / "bundle"), raising=False)
+    paths = mod.build_paths(tmp_path / "managed")
+    plan = mod.InstallPlan(
+        paths=paths,
+        source_system_file=tmp_path / "source.md",
+        zcode_runtime=tmp_path / "runtime.cjs",
+        node_command=tmp_path / "ZCode.exe",
+        activate=False,
+    )
+
+    frozen_root = (
+        Path(getattr(mod.sys, "_MEIPASS"))
+        if getattr(mod.sys, "frozen", False)
+        else Path(mod.__file__).resolve().parent
+    )
+    assert frozen_root == (tmp_path / "bundle")
+    assert json.loads(mod.env_values(plan)["ZCODE_AGENT_SERVER_ARGS_JSON"]) == [
+        str(paths.wrapper), "app-server", "--stdio"
+    ]
+    wrapper = mod.render_wrapper(plan)
+    assert "def _frozen_self_dispatch" in wrapper
+    wrapper_file = tmp_path / "wrapper.py"
+    wrapper_file.write_text(wrapper, encoding="utf-8")
+    py_compile.compile(str(wrapper_file), doraise=True)
+
+
+def test_frozen_wrapper_dispatch_propagates_wrapper_exit_code(tmp_path, monkeypatch):
+    wrapper = tmp_path / mod.DEFAULT_WRAPPER_NAME
+    wrapper.write_text("raise SystemExit(23)\n", encoding="utf-8")
+    monkeypatch.setattr(mod.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        mod.sys,
+        "argv",
+        ["zcode-keysmith-cli.exe", str(wrapper), "app-server", "--stdio"],
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        mod._run_frozen_wrapper_dispatch()
+
+    assert raised.value.code == 23
+    assert mod.sys.argv == [str(wrapper), "app-server", "--stdio"]
 
 
 def test_backup_path_reservation_is_unique_under_concurrency(tmp_path):
@@ -1058,6 +1152,37 @@ def test_json_install_execute_and_doctor(tmp_path, capsys, monkeypatch):
     assert doctor["env"]["ZCODE_KEYSMITH_SYSTEM_FILE"]["expected"].endswith("system-role.md")
 
 
+def test_json_doctor_and_verify_fail_when_state_is_missing(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    runtime = tmp_path / "runtime.cjs"
+    make_runtime(runtime)
+    node = tmp_path / "node.exe"
+    node.write_bytes(b"MZ")
+    managed = tmp_path / "missing-managed"
+    monkeypatch.setattr(mod, "get_windows_user_env_entry", lambda key: None)
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+
+    doctor_code = mod.main([
+        "doctor", "--managed-dir", str(managed), "--zcode-runtime", str(runtime),
+        "--node-command", str(node), "--json",
+    ])
+    doctor = json.loads(capsys.readouterr().out)
+    verify_code = mod.main([
+        "verify", "--managed-dir", str(managed), "--zcode-runtime", str(runtime),
+        "--node-command", str(node), "--no-smoke", "--json",
+    ])
+    verify = json.loads(capsys.readouterr().out)
+
+    assert doctor_code == 1
+    assert doctor["ok"] is False
+    assert doctor["exit_status"] == 1
+    assert doctor["blockers"]
+    assert verify_code == 1
+    assert verify["ok"] is False
+    assert verify["exit_status"] == 1
+    assert verify["blockers"]
+
+
 def test_json_verify_and_uninstall_preview(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
@@ -1133,3 +1258,23 @@ def test_json_usage_error(capsys):
     assert payload["ok"] is False
     assert payload["operation"] == "install"
     assert "usage:" not in out.lower()
+
+
+def test_wrapper_smoke_converts_timeout_and_start_errors_to_details(tmp_path, monkeypatch):
+    paths = mod.build_paths(tmp_path / "managed")
+    paths.wrapper.parent.mkdir(parents=True)
+    paths.wrapper.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+
+    def timed_out(*args, **kwargs):
+        raise subprocess.TimeoutExpired(kwargs.get("args", args[0] if args else []), kwargs.get("timeout"))
+
+    monkeypatch.setattr(mod.subprocess, "run", timed_out)
+    assert mod.run_wrapper_smoke(paths, timeout=0.01) == (False, "timeout after 0.01s")
+
+    def missing(*args, **kwargs):
+        raise OSError("missing executable")
+
+    monkeypatch.setattr(mod.subprocess, "run", missing)
+    ok, detail = mod.run_wrapper_smoke(paths)
+    assert ok is False
+    assert detail == "could not start wrapper: missing executable"

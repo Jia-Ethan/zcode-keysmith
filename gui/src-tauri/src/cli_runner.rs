@@ -9,20 +9,31 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, Command};
+use tokio::task::JoinHandle;
 use tokio::time::{timeout, Duration};
 
 const MANIFEST_FILENAME: &str = "config.json";
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const VERSION_TIMEOUT_MS: u64 = 15_000;
 const MAX_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
+// A descendant can keep an inherited pipe open after the direct child exits.
+// Never let that pipe turn the command timeout into an unbounded wait.
+const OUTPUT_DRAIN_TIMEOUT_MS: u64 = 500;
+const OUTPUT_ABORT_GRACE_MS: u64 = 100;
 const SIDECAR_BASENAME: &str = "zcode-keysmith-cli";
 const SCRIPT_NAME: &str = "zcode-keysmith.py";
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct CapturedOutput {
     bytes: Vec<u8>,
     truncated: bool,
     error: Option<String>,
+}
+
+#[derive(Debug)]
+enum ReadTaskError {
+    Timeout,
+    Join(String),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,12 +137,16 @@ async fn run_invocation(
         Ok(Ok(status)) => status.code().unwrap_or(-1),
         Ok(Err(error)) => {
             terminate_process_tree(&mut child).await;
-            let _ = read_task.await;
+            let _ =
+                finish_read_task(read_task, Duration::from_millis(OUTPUT_DRAIN_TIMEOUT_MS)).await;
             return Err(format!("等待 CLI 进程失败: {error}"));
         }
         Err(_) => {
             terminate_process_tree(&mut child).await;
-            let (stdout, stderr) = read_task.await.unwrap_or_default();
+            let (stdout, stderr) =
+                finish_read_task(read_task, Duration::from_millis(OUTPUT_DRAIN_TIMEOUT_MS))
+                    .await
+                    .unwrap_or_default();
             return Ok(CliOutput {
                 stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
                 stderr: String::from_utf8_lossy(&stderr.bytes).into_owned(),
@@ -141,9 +156,13 @@ async fn run_invocation(
         }
     };
 
-    let (stdout, stderr) = read_task
-        .await
-        .map_err(|error| format!("读取 CLI 输出任务失败: {error}"))?;
+    let (stdout, stderr) =
+        finish_read_task(read_task, Duration::from_millis(OUTPUT_DRAIN_TIMEOUT_MS))
+            .await
+            .map_err(|error| match error {
+                ReadTaskError::Timeout => "读取 CLI 输出超时".to_string(),
+                ReadTaskError::Join(error) => format!("读取 CLI 输出任务失败: {error}"),
+            })?;
     validate_captured_output(&stdout, &stderr)?;
     Ok(CliOutput {
         stdout: String::from_utf8_lossy(&stdout.bytes).into_owned(),
@@ -151,6 +170,24 @@ async fn run_invocation(
         exit_code: exit,
         timed_out: false,
     })
+}
+
+/// Wait for both output readers without allowing inherited pipes to hang the
+/// command forever. A timed-out reader task is explicitly aborted and given a
+/// short bounded cancellation grace period before its handle is dropped.
+async fn finish_read_task(
+    mut read_task: JoinHandle<(CapturedOutput, CapturedOutput)>,
+    drain_limit: Duration,
+) -> Result<(CapturedOutput, CapturedOutput), ReadTaskError> {
+    match timeout(drain_limit, &mut read_task).await {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(ReadTaskError::Join(error.to_string())),
+        Err(_) => {
+            read_task.abort();
+            let _ = timeout(Duration::from_millis(OUTPUT_ABORT_GRACE_MS), read_task).await;
+            Err(ReadTaskError::Timeout)
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -558,5 +595,21 @@ mod tests {
             .expect_err("oversized output must fail closed");
         assert!(error.contains("stdout"));
         assert!(error.contains("输出不完整"));
+    }
+
+    #[tokio::test]
+    async fn reader_drain_is_bounded_when_a_pipe_never_closes() {
+        let read_task = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            (CapturedOutput::default(), CapturedOutput::default())
+        });
+        let started = std::time::Instant::now();
+
+        let error = finish_read_task(read_task, Duration::from_millis(20))
+            .await
+            .expect_err("a never-ending reader must hit the drain bound");
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(matches!(error, ReadTaskError::Timeout));
     }
 }

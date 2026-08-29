@@ -17,6 +17,7 @@ import json
 import os
 import plistlib
 import platform
+import runpy
 import shutil
 import stat
 import subprocess
@@ -28,7 +29,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
-REPO_ROOT = Path(__file__).resolve().parent
+# PyInstaller extracts bundled examples under _MEIPASS.  Keep source runs
+# relative to this file while making frozen defaults resolve to embedded data.
+REPO_ROOT = (
+    Path(getattr(sys, "_MEIPASS"))
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
+    else Path(__file__).resolve().parent
+)
 __version__ = "0.1.1"
 VERSION = __version__
 JSON_SCHEMA = "zcode-keysmith/v1"
@@ -675,6 +682,7 @@ import hashlib
 import json
 import os
 import pathlib
+import runpy
 import subprocess
 import sys
 import tempfile
@@ -687,6 +695,20 @@ PATCH_NEEDLE = {patch_needle_json}
 CACHE_DIR = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_CACHE_DIR") or {cache_dir_json})
 LOG_DIR = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_LOG_DIR") or {log_dir_json})
 LOG_FILE = LOG_DIR / "wrapper-start.jsonl"
+
+
+def _frozen_self_dispatch() -> bool:
+    # Windows points the agent-server command at the frozen CLI executable.
+    # Re-enter the generated wrapper in-process instead of treating its path
+    # as an argparse command-line token.
+    if not getattr(sys, "frozen", False) or len(sys.argv) < 2:
+        return False
+    wrapper = pathlib.Path(sys.argv[1])
+    if wrapper.name != "zcode-agent-wrapper.py" or not wrapper.is_file():
+        return False
+    sys.argv = [str(wrapper), *sys.argv[2:]]
+    runpy.run_path(str(wrapper), run_name="__main__")
+    return True
 
 
 def acquire_cache_lock(path: pathlib.Path):
@@ -806,7 +828,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if not _frozen_self_dispatch():
+        raise SystemExit(main())
 '''
 
 
@@ -1094,7 +1117,17 @@ def install_locked(plan: InstallPlan, system_prompt: str) -> list[str]:
 def launchctl_getenv(key: str) -> str | None:
     if platform.system() != "Darwin":
         return None
-    completed = subprocess.run(["launchctl", "getenv", key], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    try:
+        completed = subprocess.run(
+            ["launchctl", "getenv", key],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError:
+        # Cross-platform probes may emulate Darwin on a host without launchctl.
+        return None
     if completed.returncode != 0:
         return None
     value = completed.stdout.strip()
@@ -1186,14 +1219,19 @@ def run_wrapper_smoke(paths: InstallPaths, timeout: float = 10.0) -> tuple[bool,
     command = [str(paths.wrapper), "--help"]
     if platform.system() == "Windows":
         command.insert(0, str(Path(sys.executable).resolve()))
-    completed = subprocess.run(
-        command,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"timeout after {timeout:g}s"
+    except OSError as exc:
+        return False, f"could not start wrapper: {exc}"
     if completed.returncode == 0:
         return True, "ok"
     detail = (completed.stderr or completed.stdout).strip().splitlines()
@@ -1408,6 +1446,16 @@ def _json_dump(payload: dict[str, object]) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def version_report() -> dict[str, object]:
+    return _json_report(
+        "version",
+        "preview",
+        True,
+        0,
+        extra={"version": VERSION, "program": "zcode-keysmith.py"},
+    )
+
+
 def _json_report(
     operation: str,
     mode: str,
@@ -1536,11 +1584,29 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         "node_command": str(node_command),
         "node_command_exists": node_command.exists(),
     }
+    blockers: list[str] = []
+    for label, present in (
+        ("managed system file", paths.system_file.is_file()),
+        ("managed config file", paths.config_file.is_file()),
+        ("managed wrapper", paths.wrapper.is_file()),
+        ("managed environment script", paths.env_script.is_file()),
+    ):
+        if not present:
+            blockers.append(f"{label} missing: {paths.managed_dir}")
+    if paths.launch_agent is not None and not paths.launch_agent.is_file():
+        blockers.append(f"LaunchAgent missing: {paths.launch_agent}")
+    if not zcode_runtime.is_file():
+        blockers.append(f"ZCode runtime missing: {zcode_runtime}")
+    elif not runtime_patchable:
+        blockers.append(f"ZCode runtime is not patchable: {zcode_runtime}")
+    if not node_command.is_file():
+        blockers.append(f"ZCode node command missing: {node_command}")
     return _json_report(
         "doctor",
         "preview",
-        True,
-        0,
+        not blockers,
+        0 if not blockers else 1,
+        blockers=blockers,
         extra={
             "managed": managed,
             "runtime": runtime,
@@ -1562,11 +1628,25 @@ def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, 
             runtime_patchable = False
     smoke_ok, smoke_detail = run_wrapper_smoke(paths) if smoke else (False, "skipped")
     last_invocation = read_last_wrapper_invocation(paths)
+    blockers: list[str] = []
+    if not paths.system_file.is_file():
+        blockers.append(f"managed system file missing: {paths.system_file}")
+    if not paths.wrapper.is_file():
+        blockers.append(f"managed wrapper missing: {paths.wrapper}")
+    if not zcode_runtime.is_file():
+        blockers.append(f"ZCode runtime missing: {zcode_runtime}")
+    elif not runtime_patchable:
+        blockers.append(f"ZCode runtime is not patchable: {zcode_runtime}")
+    if not node_command.is_file():
+        blockers.append(f"ZCode node command missing: {node_command}")
+    if smoke and not smoke_ok:
+        blockers.append(f"wrapper smoke failed: {smoke_detail}")
     return _json_report(
         "verify",
         "preview",
-        True,
-        0,
+        not blockers,
+        0 if not blockers else 1,
+        blockers=blockers,
         extra={
             "managed_dir": str(paths.managed_dir),
             "system_file_exists": paths.system_file.exists(),
@@ -1672,10 +1752,30 @@ def _operation_from_argv(argv: list[str]) -> str:
     return "unknown"
 
 
+def _run_frozen_wrapper_dispatch() -> bool:
+    """Run a generated wrapper when the Windows sidecar is self-dispatched."""
+    if not getattr(sys, "frozen", False) or len(sys.argv) < 2:
+        return False
+    wrapper = Path(sys.argv[1])
+    if wrapper.name != DEFAULT_WRAPPER_NAME:
+        return False
+    if not wrapper.is_file():
+        raise SystemExit(f"zcode-keysmith wrapper not found: {wrapper}")
+    sys.argv = [str(wrapper), *sys.argv[2:]]
+    try:
+        runpy.run_path(str(wrapper), run_name="__main__")
+    except SystemExit:
+        raise
+    return True
+
+
 def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
     argv_list = list(sys.argv[1:] if argv is None else argv)
     json_requested = "--json" in argv_list
+    if "--version" in argv_list and json_requested:
+        _json_dump(version_report())
+        return 0
     if json_requested:
         operation = _operation_from_argv(argv_list)
         try:
@@ -1700,14 +1800,33 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     use_json = json_requested or bool(getattr(args, "json", False))
     try:
-        command = args.command or "doctor"
+        command = getattr(args, "command", None)
+        if command is None:
+            if use_json:
+                _json_dump(
+                    _json_report(
+                        "unknown",
+                        "preview",
+                        False,
+                        1,
+                        error="missing command",
+                        blockers=["missing command"],
+                    )
+                )
+                return 1
+            command = "doctor"
         if command == "install":
             plan = build_install_plan(args)
             dry_run = args.dry_run or not args.yes
             lines = install(plan, yes=args.yes, dry_run_flag=args.dry_run)
             if use_json:
                 backups = [Path(line.split(": ", 1)[1]) for line in lines if line.startswith("backup: ")]
-                activation = [line for line in lines if line.startswith("launchctl ") or line.startswith("user environment:")]
+                activation = [
+                    line for line in lines
+                    if line.startswith("launchctl ")
+                    or line.startswith("user environment ")
+                    or line.startswith("user environment:")
+                ]
                 _json_dump(install_report(plan, dry_run, backups, activation))
                 return 0
             print("\n".join(lines))
@@ -1716,16 +1835,18 @@ def main(argv: Iterable[str] | None = None) -> int:
             paths = build_paths(expand_path(args.managed_dir), expand_path(args.launch_agent) if args.launch_agent else None)
             zcode_runtime, node_command = runtime_node_from_args(args)
             if use_json:
-                _json_dump(doctor_report(paths, zcode_runtime, node_command))
-                return 0
+                report = doctor_report(paths, zcode_runtime, node_command)
+                _json_dump(report)
+                return int(report["exit_status"])
             print("\n".join(doctor_lines(paths, zcode_runtime, node_command)))
             return 0
         if command == "verify":
             paths = build_paths(expand_path(args.managed_dir), expand_path(args.launch_agent) if args.launch_agent else None)
             zcode_runtime, node_command = runtime_node_from_args(args)
             if use_json:
-                _json_dump(verify_report(paths, zcode_runtime, node_command, smoke=not args.no_smoke))
-                return 0
+                report = verify_report(paths, zcode_runtime, node_command, smoke=not args.no_smoke)
+                _json_dump(report)
+                return int(report["exit_status"])
             print("\n".join(verify_lines(paths, zcode_runtime, node_command, smoke=not args.no_smoke)))
             return 0
         if command == "uninstall":
@@ -1734,7 +1855,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             lines = uninstall(paths, yes=args.yes, dry_run_flag=args.dry_run, activate=not args.no_activate)
             if use_json:
                 removed = [Path(line.split(": ", 1)[1]) for line in lines if line.startswith("removed: ")]
-                activation = [line for line in lines if line.startswith("launchctl ") or line.startswith("user environment:")]
+                activation = [
+                    line for line in lines
+                    if line.startswith("launchctl ")
+                    or line.startswith("user environment ")
+                    or line.startswith("user environment:")
+                ]
                 _json_dump(uninstall_report(paths, dry_run, removed, activation))
                 return 0
             print("\n".join(lines))
@@ -1771,4 +1897,5 @@ def main(argv: Iterable[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    if not _run_frozen_wrapper_dispatch():
+        raise SystemExit(main())
