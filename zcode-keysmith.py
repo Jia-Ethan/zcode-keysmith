@@ -359,11 +359,15 @@ def ensure_runtime_patchable(runtime_path: Path) -> None:
 
 def build_system_prompt_expression(system_file: str) -> str:
     system_file_json = json.dumps(system_file, ensure_ascii=False)
+    # Managed file wins when present; fall back to ZCode's own systemPrompt only
+    # when the managed file is missing/unreadable. Current ZCode always provides
+    # a default systemPrompt, so the original "existing prompt wins" semantics
+    # would never activate the managed system-role.md.
     return (
-        "(this.config.systemPrompt&&this.config.systemPrompt.trim()?this.config.systemPrompt:"
         "(()=>{try{let e=process.env.ZCODE_KEYSMITH_SYSTEM_FILE||"
         + system_file_json
-        + ";let t=require(\"node:fs\");return t.existsSync(e)?t.readFileSync(e,\"utf8\"):void 0}catch{return void 0}})())"
+        + ";let t=require(\"node:fs\");return t.existsSync(e)?t.readFileSync(e,\"utf8\"):"
+        "(this.config.systemPrompt||\"\")}catch{return this.config.systemPrompt}})()"
     )
 
 
@@ -726,11 +730,13 @@ def release_cache_lock(handle) -> None:
 
 def system_prompt_expression() -> str:
     system_file = json.dumps(str(SYSTEM_FILE), ensure_ascii=False)
+    # Managed file wins when present; fall back to ZCode's own systemPrompt only
+    # when the managed file is missing/unreadable.
     return (
-        "(this.config.systemPrompt&&this.config.systemPrompt.trim()?this.config.systemPrompt:"
         "(()=>{{try{{let e=process.env.ZCODE_KEYSMITH_SYSTEM_FILE||"
         + system_file
-        + ";let t=require(\\\"node:fs\\\");return t.existsSync(e)?t.readFileSync(e,\\\"utf8\\\"):void 0}}catch{{return void 0}}}})())"
+        + ";let t=require(\\\"node:fs\\\");return t.existsSync(e)?t.readFileSync(e,\\\"utf8\\\"):"
+        "(this.config.systemPrompt||\\\"\\\")}}catch{{return this.config.systemPrompt}}}})()"
     )
 
 
