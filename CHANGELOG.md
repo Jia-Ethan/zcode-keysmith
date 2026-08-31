@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- 修复 Windows wrapper 未显式绑定父进程 stdin/stdout/stderr 导致 agent-server JSON-RPC 通道失联的问题；补充 Windows 多帧通信、stderr 隔离和退出码测试。
+
 ## [0.2.0] - 2026-08-31
 
 - **system-role.md 重写为角色扮演式交付人格：** 从 831 行 (~31KB) 压缩到 141 行 (~9.8KB)。

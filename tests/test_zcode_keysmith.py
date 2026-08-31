@@ -197,9 +197,18 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     assert json.dumps(str(paths.cache_dir), ensure_ascii=False) in wrapper_text
     assert 'if os.name == "nt":' in wrapper_text
     assert "acquire_cache_lock" in wrapper_text
-    assert "subprocess.Popen" in wrapper_text
+    assert "def _stdio_stream" in wrapper_text
+    assert "def _spawn_windows_node" in wrapper_text
+    assert '"stdin": _stdio_stream(sys.stdin)' in wrapper_text
+    assert '"stdout": _stdio_stream(sys.stdout)' in wrapper_text
+    assert '"stderr": _stdio_stream(sys.stderr)' in wrapper_text
+    assert "subprocess.PIPE" not in wrapper_text
+    assert "threading" not in wrapper_text
+    assert "close_fds=True" in wrapper_text
+    assert "fileno()" in wrapper_text
+    assert 'RuntimeError("Windows %s stream is not available: %s"' in wrapper_text
     assert "proc.wait()" in wrapper_text
-    # Popen inherits stdin/stdout/stderr directly for stable JSON-RPC communication
+    # Windows binds the parent's OS handles explicitly.
     assert "env=env" in wrapper_text
 
 
@@ -243,9 +252,11 @@ def test_windows_wrapper_inherits_stdio_and_propagates_exit_code(tmp_path):
     runtime.write_text(
         "MARKER = '''customSystemPrompt:this.config.systemPrompt,language:'''\n"
         "import sys\n"
-        "payload = sys.stdin.buffer.read()\n"
-        "sys.stdout.buffer.write(payload.upper())\n"
-        "sys.stdout.buffer.flush()\n"
+        "for line in sys.stdin.buffer:\n"
+        "    sys.stderr.buffer.write(b'diagnostic\\n')\n"
+        "    sys.stderr.buffer.flush()\n"
+        "    sys.stdout.buffer.write(line.upper())\n"
+        "    sys.stdout.buffer.flush()\n"
         "raise SystemExit(23)\n",
         encoding="utf-8",
     )
@@ -262,7 +273,7 @@ def test_windows_wrapper_inherits_stdio_and_propagates_exit_code(tmp_path):
     }
     completed = subprocess.run(
         [sys.executable, str(paths.wrapper), "app-server", "--stdio"],
-        input=b"json-rpc-stdio",
+        input=b"json-rpc-one\njson-rpc-two\n",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         check=False,
@@ -270,8 +281,8 @@ def test_windows_wrapper_inherits_stdio_and_propagates_exit_code(tmp_path):
     )
 
     assert completed.returncode == 23
-    assert completed.stdout == b"JSON-RPC-STDIO"
-    assert completed.stderr == b""
+    assert completed.stdout == b"JSON-RPC-ONE\nJSON-RPC-TWO\n"
+    assert completed.stderr == b"diagnostic\ndiagnostic\n"
 
 
 def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatch):

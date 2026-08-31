@@ -17,7 +17,7 @@ ZCODE_AGENT_SERVER_COMMAND
 ZCODE_AGENT_SERVER_ARGS_JSON
 ```
 
-macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`。Windows 安装器把 command 指向当前 Python 解释器，并把 wrapper 路径作为第一个参数，避开 Windows 不能可靠直接执行 `.py` 文件的问题。wrapper 读取 ZCode 自带 runtime（macOS 默认 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`；Windows 为安装目录下 `resources/glm/zcode.cjs`），在用户目录缓存一份副本，只替换一处 `customSystemPrompt` 入口，使其优先读取 `~/.zcode-keysmith/system-role.md`，再用 ZCode 自带 Electron node 启动缓存 runtime。macOS 优先使用 Helper 可执行文件，Windows 使用 `ZCode.exe` 并仅为 agent-server 子进程设置 `ELECTRON_RUN_AS_NODE=1`。
+macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`。Windows 安装器把 command 指向当前 Python 解释器，并把 wrapper 路径作为第一个参数，避开 Windows 不能可靠直接执行 `.py` 文件的问题。wrapper 读取 ZCode 自带 runtime（macOS 默认 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`；Windows 为安装目录下 `resources/glm/zcode.cjs`），在用户目录缓存一份副本，只替换一处 `customSystemPrompt` 入口，使其读取 `~/.zcode-keysmith/system-role.md`，再用 ZCode 自带 Electron node 启动缓存 runtime。Windows wrapper 会显式把父进程的 stdin/stdout/stderr OS 句柄绑定给 agent-server 子进程，并保留 stderr 与 stdout 的分离，保持长连接 JSON-RPC 通信；仅传递这三个句柄，不泄漏其他句柄。macOS 优先使用 Helper 可执行文件，Windows 使用 `ZCode.exe` 并仅为 agent-server 子进程设置 `ELECTRON_RUN_AS_NODE=1`。
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
@@ -139,7 +139,7 @@ ZCODE_AGENT_SERVER_COMMAND
 ZCODE_AGENT_SERVER_ARGS_JSON
 ```
 
-On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. On Windows, the command is the current Python interpreter and the wrapper path is the first argument, avoiding unreliable direct `.py` execution. The wrapper reads the bundled ZCode runtime (`/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs` on macOS or `resources/glm/zcode.cjs` under the Windows install), caches a copy, patches only the `customSystemPrompt` entrypoint, and launches it with ZCode's Electron Node. Windows sets `ELECTRON_RUN_AS_NODE=1` only for the agent-server child process.
+On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. On Windows, the command is the current Python interpreter and the wrapper path is the first argument, avoiding unreliable direct `.py` execution. The wrapper reads the bundled ZCode runtime (`/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs` on macOS or `resources/glm/zcode.cjs` under the Windows install), caches a copy, patches only the `customSystemPrompt` entrypoint, and launches it with ZCode's Electron Node. On Windows it explicitly binds the parent's stdin/stdout/stderr OS handles to the agent-server child, keeps stderr separate from stdout, and passes only those three handles so long-lived JSON-RPC stays connected. Windows sets `ELECTRON_RUN_AS_NODE=1` only for the agent-server child process.
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 

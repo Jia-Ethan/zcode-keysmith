@@ -697,6 +697,27 @@ LOG_DIR = pathlib.Path(os.environ.get("ZCODE_KEYSMITH_LOG_DIR") or {log_dir_json
 LOG_FILE = LOG_DIR / "wrapper-start.jsonl"
 
 
+def _stdio_stream(stream):
+    """Return the binary OS stream so Windows binds the parent's pipes."""
+    return getattr(stream, "buffer", stream)
+
+
+def _spawn_windows_node(command, env):
+    streams = {{
+        "stdin": _stdio_stream(sys.stdin),
+        "stdout": _stdio_stream(sys.stdout),
+        "stderr": _stdio_stream(sys.stderr),
+    }}
+    for name, stream in streams.items():
+        try:
+            stream.fileno()
+        except (AttributeError, OSError, ValueError) as exc:
+            raise RuntimeError("Windows %s stream is not available: %s" % (name, exc)) from exc
+    # Keep Python's precise Windows handle-list inheritance while binding only
+    # the three streams needed by the long-lived JSON-RPC child.
+    return subprocess.Popen(command, env=env, close_fds=True, **streams)
+
+
 def _frozen_self_dispatch() -> bool:
     # Windows points the agent-server command at the frozen CLI executable.
     # Re-enter the generated wrapper in-process instead of treating its path
@@ -817,11 +838,9 @@ def main() -> int:
     env = os.environ.copy()
     env["ELECTRON_RUN_AS_NODE"] = "1"
     if os.name == "nt":
-        # Use Popen to inherit stdin/stdout/stderr directly for stable long-running JSON-RPC communication
-        proc = subprocess.Popen(
-            [NODE_COMMAND, str(runtime), *args],
-            env=env,
-        )
+        # Bind all three parent OS handles explicitly. Python 3.14 otherwise
+        # starts the child without Electron's redirected JSON-RPC pipes.
+        proc = _spawn_windows_node([NODE_COMMAND, str(runtime), *args], env)
         return proc.wait()
     os.execve(NODE_COMMAND, [NODE_COMMAND, str(runtime), *args], env)
     return 127
