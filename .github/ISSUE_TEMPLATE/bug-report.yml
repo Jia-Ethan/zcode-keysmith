@@ -1,0 +1,60 @@
+name: Bug report / Bug 报告
+description: Report a reproducible problem / 报告可复现的问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先删除 token、cookie、用户名、私人路径和完整配置。安全漏洞请使用 [Private vulnerability reporting](https://github.com/Jia-Ethan/zcode-keysmith/security/advisories/new)，不要在这里公开。
+
+        Remove tokens, cookies, usernames, private paths, and complete configuration. Report vulnerabilities through [Private vulnerability reporting](https://github.com/Jia-Ethan/zcode-keysmith/security/advisories/new), not here.
+
+  - type: input
+    id: os-and-zcode-version
+    attributes:
+      label: 操作系统与 ZCode 版本 / OS and ZCode version
+      placeholder: macOS 15.5, ZCode 1.2.3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operation
+    attributes:
+      label: 操作模式 / Operation
+      options:
+        - install (--dry-run)
+        - install (--yes)
+        - doctor
+        - verify
+        - uninstall preview
+        - uninstall (--yes)
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 实际发生的问题（含复现步骤和预期结果）/ What happened (include steps and what you expected)
+      description: Provide the smallest sequence that reproduces the problem, what you expected, and what actually happened.
+      placeholder: |
+        1. Run ...
+        2. Expected ...
+        3. Actually saw ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostic-output
+    attributes:
+      label: 脱敏后的 doctor / verify / error 输出（可选，但强烈建议附上）/ Redacted diagnostic output (optional, strongly recommended)
+      description: Include `doctor` and `verify` output where applicable. Do not paste API keys, tokens, or complete config files.
+      render: shell
+
+  - type: checkboxes
+    id: redaction
+    attributes:
+      label: 脱敏确认 / Redaction confirmation
+      options:
+        - label: I removed tokens, cookies, usernames, private paths, and complete configuration. / 我已删除这些敏感信息。
+          required: true
