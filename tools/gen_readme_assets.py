@@ -4,9 +4,10 @@
 Run:  python3 tools/gen_readme_assets.py
 Outputs:
   docs/assets/readme/deploy-flow-{zh,en}-{light,dark}.svg
+  docs/assets/readme/pass-trend-{zh,en}-{light,dark}.svg
 
-No pass-trend SVGs: this repo has no breaktest/ bank with comparable
-full-delivery counts across versions. Do not invent trend points.
+Trend points come from breaktest/scores.json (2026-08-31 glm-5.3
+sharp-10 full-delivery re-score). Do not invent extra versions.
 """
 from __future__ import annotations
 
@@ -118,13 +119,94 @@ def flow_svg(strings, theme: str) -> str:
     return "\n".join(parts)
 
 
+# Sharp-10 bank, glm-5.3, 2026-08-31, 1 rep. Full-delivery re-score
+# (not CHANGELOG 0.2.0 qualitative refusal counts). Hard-pressure omitted.
+TREND_ZH = [
+    ("契约脸", "2026-08-31", 1, "contract-v2，仅 X1 完整"),
+    ("v0.2.0", "2026-08-31", 4, "角色扮演，X2/X5/X7/X9 完整"),
+]
+TREND_EN = [
+    ("contract-v2", "2026-08-31", 1, "X1 only"),
+    ("v0.2.0", "2026-08-31", 4, "roleplay; X2/X5/X7/X9"),
+]
+TREND_MAX = 10.0
+
+
+def trend_svg(strings, theme: str, lang: str) -> str:
+    t = LIGHT if theme == "light" else DARK
+    w, h = 760, 360
+    ml, mr, mt, mb = 64, 28, 46, 56
+    plot_w, plot_h = w - ml - mr, h - mt - mb
+    n = len(strings)
+    span = max(n - 1, 1)
+    xs = [ml + plot_w * (0.18 + 0.64 * (i / span)) for i in range(n)]
+    ys = [mt + plot_h * (1 - full / TREND_MAX) for _, _, full, _ in strings]
+
+    title = (
+        "Sharp-bank full-delivery trend (10 cells × 1 rep, glm-5.3)"
+        if lang == "en"
+        else "尖锐银行完整交付趋势（10 单元 × 1 次，glm-5.3）"
+    )
+    cap = (
+        "Same-day 2026-08-31. Hard-pressure face omitted (no transcripts). "
+        "CHANGELOG 0.2.0 qualitative refusal counts use a different bar."
+        if lang == "en"
+        else "同日 2026-08-31。硬压脸无全文，未入图。CHANGELOG 0.2.0 的拒绝计数是另一把尺。"
+    )
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}" font-family="{FONT}">',
+        f'<rect width="{w}" height="{h}" fill="{t["bg"]}"/>',
+        f'<text x="{ml}" y="26" font-size="15" font-weight="600" fill="{t["fg"]}">{esc(title)}</text>',
+    ]
+    for tick in (0, 5, 10):
+        gy = mt + plot_h * (1 - tick / TREND_MAX)
+        parts.append(
+            f'<line x1="{ml}" y1="{gy:.1f}" x2="{w - mr}" y2="{gy:.1f}" stroke="{t["grid"]}" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{ml - 10}" y="{gy + 4:.1f}" font-size="12" fill="{t["muted"]}" text-anchor="end">{tick}/10</text>'
+        )
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    area = f"{ml},{mt + plot_h} " + pts + f" {w - mr},{mt + plot_h}"
+    parts.append(f'<polygon points="{area}" fill="{t["accent_soft"]}"/>')
+    parts.append(f'<polyline points="{pts}" fill="none" stroke="{t["accent"]}" stroke-width="2.4"/>')
+    by = mt + plot_h * (1 - 1 / TREND_MAX)
+    parts.append(
+        f'<line x1="{ml}" y1="{by:.1f}" x2="{w - mr}" y2="{by:.1f}" stroke="{t["warn"]}" stroke-width="1.2" stroke-dasharray="5 4"/>'
+    )
+    blab = "contract-v2 baseline 契约脸基线 1/10"
+    parts.append(
+        f'<text x="{w - mr}" y="{by - 7:.1f}" font-size="11.5" fill="{t["warn"]}" text-anchor="end">{esc(blab)}</text>'
+    )
+    for (ver, date, full, _note), x, y in zip(strings, xs, ys):
+        parts.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="5.5" fill="{t["accent"]}" stroke="{t["bg"]}" stroke-width="2"/>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{y - 14:.1f}" font-size="14" font-weight="700" fill="{t["fg"]}" text-anchor="middle">{full}/10</text>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{mt + plot_h + 22:.1f}" font-size="13" font-weight="600" fill="{t["fg"]}" text-anchor="middle">{esc(ver)}</text>'
+        )
+        parts.append(
+            f'<text x="{x:.1f}" y="{mt + plot_h + 40:.1f}" font-size="11.5" fill="{t["muted"]}" text-anchor="middle">{esc(date)}</text>'
+        )
+    parts.append(f'<text x="{ml}" y="{h - 12}" font-size="11.5" fill="{t["muted"]}">{esc(cap)}</text>')
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
 def main() -> None:
-    for lang, flow in (("zh", FLOW_ZH), ("en", FLOW_EN)):
+    for lang, flow, trend in (("zh", FLOW_ZH, TREND_ZH), ("en", FLOW_EN, TREND_EN)):
         for theme in ("light", "dark"):
             (OUT / f"deploy-flow-{lang}-{theme}.svg").write_text(
                 flow_svg(flow, theme), encoding="utf-8"
             )
-    for p in sorted(OUT.glob("deploy-flow-*.svg")):
+            (OUT / f"pass-trend-{lang}-{theme}.svg").write_text(
+                trend_svg(trend, theme, lang), encoding="utf-8"
+            )
+    for p in sorted(OUT.glob("*.svg")):
         print(p.relative_to(ROOT), p.stat().st_size, "bytes")
 
 

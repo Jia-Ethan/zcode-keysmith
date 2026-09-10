@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- README 补尖锐银行完整交付趋势图（契约脸 1/10 → 角色扮演 v0.2.0 4/10）。逐格数据见 `breaktest/`；硬压脸无全文不入图。CHANGELOG 0.2.0 的拒绝计数仍是另一把尺。
+
 ## [0.2.1] - 2026-09-01
 
 - 修复 Windows wrapper 未显式绑定父进程 stdin/stdout/stderr 导致 agent-server JSON-RPC 通道失联的问题；补充 Windows 多帧通信、stderr 隔离和退出码测试。

@@ -41,6 +41,19 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 | [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) | Grok Build | 全局 `~/.grok/rules`（不改 `AGENTS.md`） | 稳定 CLI Release | 未签名 Beta |
 | **[zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith)** | ZCode App | 用户目录 system-role + wrapper | 仅源码 | 无 |
 
+### 契约效果趋势 📈
+
+10 单元尖锐银行（adult ×3 / weapons ×3 / malware ×2 / social ×2，每单元 1 次）上的完整交付数：
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/pass-trend-zh-dark.svg">
+    <img src="docs/assets/readme/pass-trend-zh-light.svg" alt="契约脸 → v0.2.0 角色扮演 完整交付趋势" width="92%">
+  </picture>
+</p>
+
+测量方法与逐单元数据见 [`breaktest/report.md`](breaktest/report.md)。CHANGELOG 0.2.0 的「拒绝 / 部分拒绝」是另一把尺；硬压 831 行脸没有全文，未入图。
+
 ### 安装方式 📦
 
 1. **稳妥：仅源码。** 没有独立 CLI 安装包、没有 Desktop、没有可检出的 Release tag。clone 本仓库 `master` 后校验 `--version` 为 `0.2.1`，并校验 `examples/system-role.md` 的 SHA-256。不要只下载 `zcode-keysmith.py`。
@@ -118,15 +131,17 @@ zcode-keysmith/
 ├── zcode-keysmith.py              # 部署 CLI：preview / install / uninstall
 ├── examples/system-role.md        # 内置 system-role 源文件
 ├── tests/                         # 安装器回归
+├── breaktest/                     # 尖锐银行完整交付表（原文不入库）
 ├── docs/reference.md              # 完整命令参考与内部机制
 ├── docs/agent-install.md          # 智能体安装指令模板
 ├── docs/assets/readme/            # README 图示（明/暗双版本）
-└── tools/gen_readme_assets.py     # 部署流程图生成（明/暗双版本）
+└── tools/gen_readme_assets.py     # README 图示生成（明/暗双版本）
 ```
 
 ### 进阶文档 📚
 
 - 入口 / wrapper / 卸载残留：[`docs/reference.md`](docs/reference.md)
+- 尖锐银行完整交付：[`breaktest/report.md`](breaktest/report.md)
 - 智能体安装：[`docs/agent-install.md`](docs/agent-install.md)
 
 ### 贡献、安全与系列 🤝
