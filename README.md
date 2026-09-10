@@ -1,159 +1,138 @@
 <!-- markdownlint-disable MD013 MD033 MD041 -->
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/deploy-flow-zh-dark.svg">
-    <img src="docs/assets/readme/deploy-flow-zh-light.svg" alt="zcode-keysmith 部署流程：预览 → 写入 system-role + wrapper → 验证 → 撤销" width="100%">
-  </picture>
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/zcode-keysmith-hero-dark.webp" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/zcode-keysmith-hero-light.webp" />
+  <img src="docs/assets/readme/zcode-keysmith-hero-light.webp" alt="zcode-keysmith" width="100%" />
+</picture>
+
+<p>
+  <a href="https://github.com/Jia-Ethan/zcode-keysmith/stargazers"><img src="https://img.shields.io/github/stars/Jia-Ethan/zcode-keysmith?style=flat-square&color=%232f81f7" alt="GitHub Stars" /></a>
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" />
+  <img src="https://img.shields.io/badge/license-MIT-6DB33F?style=flat-square" alt="MIT License" />
 </p>
 
-<h1 align="center">zcode-keysmith</h1>
-
-<p align="center">先预览、再写入、可撤销的 ZCode App 用户目录 system-role 入口安装器。</p>
-
-<p align="center">
+<p>
   <a href="#简体中文">简体中文</a> ·
   <a href="README.en.md">English</a> ·
-  <a href="docs/reference.md">Reference</a> ·
-  <a href="docs/agent-install.md">智能体安装</a> ·
+  <a href="docs/reference.md">使用说明</a> ·
   <a href="LICENSE">License</a>
 </p>
 
-<p align="center">
-  <img alt="GitHub Stars" src="https://img.shields.io/github/stars/Jia-Ethan/zcode-keysmith?style=flat-square&color=%232f81f7">
-  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white">
-  <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-6DB33F?style=flat-square">
-</p>
+<h1>zcode-keysmith</h1>
 
-## 简体中文 🇨🇳
+<p>给 ZCode 装上一份可撤销的指令。先看计划，确认了再写入。</p>
 
-Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指令。`zcode-keysmith` 在用户目录安装受管理的 `system-role.md`，经 agent-server wrapper 进入 ZCode runtime 的 system message 路径。**不是** `AGENTS.md` 安装器；仅源码安装，无 Desktop。
+</div>
 
-> [!WARNING]
-> 这会改本机 ZCode 的 **agent-server 入口**，影响之后新启动的会话：写入 `~/.zcode-keysmith/system-role.md` 与 wrapper，并激活 macOS LaunchAgent 或 Windows 当前用户 `ZCODE_*` 环境。不改 App 原包，不读 API key / provider / MCP。默认只预览，显式 `--yes` 才写入。先阅读 [`examples/system-role.md`](examples/system-role.md) 和 [`docs/reference.md`](docs/reference.md)。
+## 简体中文
 
-### 选择哪个 Keysmith 🔑
+Keysmith 给本机的 AI 编程工具装指令：先预览，再写入，能验证，能撤走。
 
-| 项目 | 目标工具 | 部署面 | 稳妥安装 | Desktop |
-| --- | --- | --- | --- | --- |
-| [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) | Codex | 全局 `~/.codex` 指令 | 稳定 CLI Release | 未签名 Beta |
-| [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) | Claude Code | 项目 / 用户 `CLAUDE.md` import | 源码 CLI | 未签名 Beta |
-| [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) | Grok Build | 全局 `~/.grok/rules`（不改 `AGENTS.md`） | 稳定 CLI Release | 未签名 Beta |
-| **[zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith)** | ZCode App | 用户目录 system-role + wrapper | 仅源码 | 无 |
+`zcode-keysmith` 面向 **ZCode**。装上之后，新开的对话会按这份指令工作。不改 ZCode 软件本身，也不读取账号和密钥。
 
-### 契约效果趋势 📈
+> [!IMPORTANT]
+> 这会改变 ZCode **之后新开的对话**。默认只给你看计划，加上确认才会写入。装完后请完全退出并重新打开 ZCode。
 
-10 单元尖锐银行（adult ×3 / weapons ×3 / malware ×2 / social ×2，每单元 1 次）上的完整交付数：
+## 使用方式
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/pass-trend-zh-dark.svg">
-    <img src="docs/assets/readme/pass-trend-zh-light.svg" alt="契约脸 → v0.2.0 角色扮演 完整交付趋势" width="92%">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/project-architecture-zh-dark.webp" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/project-architecture-zh-light.webp" />
+    <img alt="先看计划，确认后装上，新对话生效，随时可以撤走" src="docs/assets/readme/project-architecture-zh-light.webp" width="100%" />
   </picture>
 </p>
 
-测量方法与逐单元数据见 [`breaktest/report.md`](breaktest/report.md)。CHANGELOG 0.2.0 的「拒绝 / 部分拒绝」是另一把尺；硬压 831 行脸没有全文，未入图。
+1. **先看计划。** 确认之前什么都不会写入。
+2. **确认后装上。** 指令交给本机 ZCode，软件保持原样。
+3. **新开一轮对话。** 完全退出并重新打开之后才会生效。
+4. **随时撤走。** 同样先看计划，确认后恢复成原来的样子。
 
-### 安装方式 📦
+## 选哪个 Keysmith
 
-1. **稳妥：仅源码。** 没有独立 CLI 安装包、没有 Desktop、没有可检出的 Release tag。clone 本仓库 `master` 后校验 `--version` 为 `0.2.4`，并校验 `examples/system-role.md` 的 SHA-256。不要只下载 `zcode-keysmith.py`。
-2. **交给智能体装。** 复制 [`docs/agent-install.md`](docs/agent-install.md) 里的指令模板，让 Codex / Claude Code / 任何执行型智能体替你完成校验与部署。
+| 你在用 | 用这个 | 怎么开始 |
+| --- | --- | --- |
+| [Codex](https://github.com/Jia-Ethan/codex-keysmith) | codex-keysmith | 稳定版安装包 |
+| [Claude Code](https://github.com/Jia-Ethan/claude-keysmith) | claude-keysmith | 源码 |
+| [Grok Build](https://github.com/Jia-Ethan/grok-keysmith) | grok-keysmith | 稳定版安装包 |
+| **ZCode** | **zcode-keysmith** | 源码 |
 
-### 快速开始 🚀
+每个工具一份安装器。选你正在用的即可。
 
-**源码（macOS）：**
+## 效果
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/pass-trend-zh-dark.svg" />
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/readme/pass-trend-zh-light.svg" />
+    <img alt="同一批 10 题，完整交出产物从 1 题到 4 题" src="docs/assets/readme/pass-trend-zh-light.svg" width="92%" />
+  </picture>
+</p>
+
+同一模型、同一批 10 道题，完整交出产物的题数从 1 题到 4 题。逐题记录见 [测量说明](breaktest/report.md)。
+
+## 开始使用
+
+本机需要已经装好 ZCode。目前只有源码安装，没有独立安装包和桌面版。
+
+**macOS：**
 
 ```bash
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
-python3 zcode-keysmith.py --version
-# 期望 zcode-keysmith.py 0.2.4
-shasum -a 256 examples/system-role.md
-# 期望 73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca
 python3 zcode-keysmith.py install --dry-run
-# 确认 ~/.zcode-keysmith 目标、system-role 与 wrapper 计划后：
 python3 zcode-keysmith.py install --yes
-python3 zcode-keysmith.py doctor
 ```
 
-完全退出并重新打开 ZCode，新建任务后再运行 `python3 zcode-keysmith.py verify`。
+完全退出并重新打开 ZCode，再新开一轮对话。
 
-**Windows PowerShell：**
+**Windows：**
 
 先完全退出 ZCode，再运行：
 
 ```powershell
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
-py zcode-keysmith.py --version
-# 期望 zcode-keysmith.py 0.2.4
 py zcode-keysmith.py install --dry-run
-# 确认 ~/.zcode-keysmith 目标、system-role 与 wrapper 计划后：
 py zcode-keysmith.py install --yes
-py zcode-keysmith.py doctor
 ```
 
-重新打开 ZCode，新建任务后运行 `py zcode-keysmith.py verify`。安装器会自动查找正在运行的 `ZCode.exe`、注册的 App Path 和常见安装目录。
+重新打开 ZCode，新开一轮对话。
 
-本机需要先有 `ZCode.app` 或 `ZCode.exe`。`install --dry-run` 仍会读取源提示词并检查 runtime 是否可打补丁；找不到可识别安装时预览会失败。非默认路径用 `--zcode-app` 或 `ZCODE_APP_PATH`。
+也可以把 [代装说明](docs/agent-install.md) 交给你正在用的 AI 助手，让它按步骤完成。校验、路径和进阶选项见 [使用说明](docs/reference.md)。
 
-### 会修改什么 ✍️
-
-| 路径 | 会发生什么 |
-| --- | --- |
-| `~/.zcode-keysmith/system-role.md` | 写入归一化后的源提示词 |
-| `~/.zcode-keysmith/config.json`、`bin/*` | 受管理配置与 wrapper |
-| `~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist` | macOS 用户 LaunchAgent |
-| `HKCU\Environment` 的七个 `ZCODE_*` 值 | Windows 当前用户入口；不需要管理员权限 |
-| `cache/`、`logs/` | 运行时缓存与 wrapper 日志；卸载不删 |
-
-不写项目文件，不改 `ZCode.app` / `ZCode.exe`。原理见 [`docs/reference.md`](docs/reference.md)。
-
-### 如何撤销 ♻️
+## 怎么撤走
 
 ```bash
 python3 zcode-keysmith.py uninstall --dry-run
 python3 zcode-keysmith.py uninstall --yes
 ```
 
-Windows 把 `python3` 换成 `py`。macOS 卸载把五个受管理文件改名为 `.bak_*` 并清空当前 launchd 环境；Windows 卸载备份四个受管理文件，并且只在注册表值仍属于本次安装时恢复安装前的用户环境。没有 `recover` / `restore`，完整步骤见 [`docs/reference.md`](docs/reference.md)。
+Windows 把 `python3` 换成 `py`。先看计划，确认后再恢复。
 
-### 平台与限制 ⚠️
+## 适用环境
 
-- CLI CI 覆盖 macOS / Windows；Python 3.10+。Linux 没有文档化支持。Windows 运行期间不能删除安装时使用的 Python。
-- 仅源码安装：无签名包、无 Desktop、无独立二进制资产、无稳定 Release tag。当前公开树版本是 `0.2.4`。
-- 开发版字段、wrapper 日志与卸载残留见 [`docs/reference.md`](docs/reference.md)。
+macOS 与 Windows。需要 Python 3.10+。Linux 暂不支持。
 
-### 项目结构 🗂️
+## 文档
 
-```text
-zcode-keysmith/
-├── zcode-keysmith.py              # 部署 CLI：preview / install / uninstall
-├── examples/system-role.md        # 内置 system-role 源文件
-├── tests/                         # 安装器回归
-├── breaktest/                     # 尖锐银行完整交付表（原文不入库）
-├── docs/reference.md              # 完整命令参考与内部机制
-├── docs/agent-install.md          # 智能体安装指令模板
-├── docs/assets/readme/            # README 图示（明/暗双版本）
-└── tools/gen_readme_assets.py     # README 图示生成（明/暗双版本）
-```
+- [使用说明](docs/reference.md)
+- [代装说明](docs/agent-install.md)
+- [测量说明](breaktest/report.md)
 
-### 进阶文档 📚
+## 系列
 
-- 入口 / wrapper / 卸载残留：[`docs/reference.md`](docs/reference.md)
-- 尖锐银行完整交付：[`breaktest/report.md`](breaktest/report.md)
-- 智能体安装：[`docs/agent-install.md`](docs/agent-install.md)
+- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) — 给 Codex
+- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) — 给 Claude Code
+- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) — 给 Grok Build
+- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) — 给 ZCode
 
-### 贡献、安全与系列 🤝
+官方反馈：[GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7) · 社区：[LINUX DO](https://linux.do)
 
-安装器不读取 API key。官方反馈：[GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7)；社区交流：[LINUX DO](https://linux.do)。
-
-- [codex-keysmith](https://github.com/Jia-Ethan/codex-keysmith) — Codex 全局指令
-- [claude-keysmith](https://github.com/Jia-Ethan/claude-keysmith) — Claude Code 可卸载 import block
-- [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) — Grok Build home rules（`~/.grok/rules/99-keysmith.md`，不改 `AGENTS.md`）
-- [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) — ZCode App system-role 入口（仅源码，无 Desktop）
-
-### Star History ⭐
+## Star History
 
 <p align="center">
   <a href="https://star-history.com/#Jia-Ethan/zcode-keysmith&Date">
