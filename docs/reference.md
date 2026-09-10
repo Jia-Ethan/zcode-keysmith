@@ -14,9 +14,9 @@
 
 ### 源码安装面
 
-- 稳妥安装 clone 当前 `master` 源码树，校验 `--version` 为 `0.2.1`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，经 wrapper 进入 ZCode agent-server 的 system message 路径，**不改** App 原包。
+- 稳妥安装 clone 当前 `master` 源码树，校验 `--version` 为 `0.2.4`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，经 wrapper 进入 ZCode agent-server 的 system message 路径，**不改** App 原包。
 - 仅源码：没有独立二进制资产、没有 `pip` / npm、没有已发布 Desktop 安装包、没有可检出的 Release tag。
-- 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`。
+- 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`。
 
 ### 原理
 
@@ -31,7 +31,7 @@ macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zc
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
-当前公开树版本 `0.2.1` **只有源码**：没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包或可检出的 Release tag。安装面只有 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
+当前公开树版本 `0.2.4` **只有源码**：没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包或可检出的 Release tag。安装面只有 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
 
 `install --dry-run` 仍会读取源提示词并检查本机 runtime 是否可打补丁。本机找不到可识别的 ZCode 安装时，预览会失败。可用 `--zcode-app` 或 `ZCODE_APP_PATH` 指定路径。
 
@@ -124,9 +124,9 @@ python3 zcode-keysmith.py verify
 
 ### Source-only install
 
-- Clone the current `master` source tree and confirm `--version` is `0.2.1`. That version writes `~/.zcode-keysmith/system-role.md` and routes it through the wrapper into ZCode agent-server's system-message path. The app bundle is **not** modified.
+- Clone the current `master` source tree and confirm `--version` is `0.2.4`. That version writes `~/.zcode-keysmith/system-role.md` and routes it through the wrapper into ZCode agent-server's system-message path. The app bundle is **not** modified.
 - Source only: no standalone binary assets, no pip/npm package, no published Desktop, no checkout-able Release tag.
-- Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`.
+- Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`.
 
 ### How it works
 
@@ -141,7 +141,7 @@ On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmit
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
-The current public tree `0.2.1` is **source only**: no standalone binary assets, Desktop client, pip/npm package, or checkout-able Release tag. Clone the repo, then run `zcode-keysmith.py`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
+The current public tree `0.2.4` is **source only**: no standalone binary assets, Desktop client, pip/npm package, or checkout-able Release tag. Clone the repo, then run `zcode-keysmith.py`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
 
 `install --dry-run` still reads the source prompt and checks that the local runtime is patchable. Preview fails if no recognizable ZCode installation is present. Pass `--zcode-app` or `ZCODE_APP_PATH` for a non-default location.
 

@@ -56,7 +56,7 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 
 ### 安装方式 📦
 
-1. **稳妥：仅源码。** 没有独立 CLI 安装包、没有 Desktop、没有可检出的 Release tag。clone 本仓库 `master` 后校验 `--version` 为 `0.2.1`，并校验 `examples/system-role.md` 的 SHA-256。不要只下载 `zcode-keysmith.py`。
+1. **稳妥：仅源码。** 没有独立 CLI 安装包、没有 Desktop、没有可检出的 Release tag。clone 本仓库 `master` 后校验 `--version` 为 `0.2.4`，并校验 `examples/system-role.md` 的 SHA-256。不要只下载 `zcode-keysmith.py`。
 2. **交给智能体装。** 复制 [`docs/agent-install.md`](docs/agent-install.md) 里的指令模板，让 Codex / Claude Code / 任何执行型智能体替你完成校验与部署。
 
 ### 快速开始 🚀
@@ -67,9 +67,9 @@ Keysmith 系列为本地 AI 工具**安全部署、验证和撤销**自定义指
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
 python3 zcode-keysmith.py --version
-# 期望 zcode-keysmith.py 0.2.1
+# 期望 zcode-keysmith.py 0.2.4
 shasum -a 256 examples/system-role.md
-# 期望 ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954
+# 期望 73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca
 python3 zcode-keysmith.py install --dry-run
 # 确认 ~/.zcode-keysmith 目标、system-role 与 wrapper 计划后：
 python3 zcode-keysmith.py install --yes
@@ -86,7 +86,7 @@ python3 zcode-keysmith.py doctor
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
 py zcode-keysmith.py --version
-# 期望 zcode-keysmith.py 0.2.1
+# 期望 zcode-keysmith.py 0.2.4
 py zcode-keysmith.py install --dry-run
 # 确认 ~/.zcode-keysmith 目标、system-role 与 wrapper 计划后：
 py zcode-keysmith.py install --yes
@@ -121,7 +121,7 @@ Windows 把 `python3` 换成 `py`。macOS 卸载把五个受管理文件改名�
 ### 平台与限制 ⚠️
 
 - CLI CI 覆盖 macOS / Windows；Python 3.10+。Linux 没有文档化支持。Windows 运行期间不能删除安装时使用的 Python。
-- 仅源码安装：无签名包、无 Desktop、无独立二进制资产、无稳定 Release tag。当前公开树版本是 `0.2.1`。
+- 仅源码安装：无签名包、无 Desktop、无独立二进制资产、无稳定 Release tag。当前公开树版本是 `0.2.4`。
 - 开发版字段、wrapper 日志与卸载残留见 [`docs/reference.md`](docs/reference.md)。
 
 ### 项目结构 🗂️

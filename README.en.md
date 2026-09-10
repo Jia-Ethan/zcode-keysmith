@@ -56,7 +56,7 @@ Methodology and per-cell data live in [`breaktest/report.md`](breaktest/report.m
 
 ### Install options 📦
 
-1. **Conservative: source only.** There is no standalone CLI package, no Desktop, and no checkout-able Release tag. Clone this repository's `master` branch, confirm `--version` is `0.2.1`, and verify the SHA-256 of `examples/system-role.md`. Do not download only `zcode-keysmith.py`.
+1. **Conservative: source only.** There is no standalone CLI package, no Desktop, and no checkout-able Release tag. Clone this repository's `master` branch, confirm `--version` is `0.2.4`, and verify the SHA-256 of `examples/system-role.md`. Do not download only `zcode-keysmith.py`.
 2. **Let an agent install it.** Copy the instruction template from [`docs/agent-install.md`](docs/agent-install.md) and have Codex / Claude Code / any execution agent do the verification and deployment for you.
 
 ### Quick start 🚀
@@ -67,9 +67,9 @@ Methodology and per-cell data live in [`breaktest/report.md`](breaktest/report.m
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
 python3 zcode-keysmith.py --version
-# expected zcode-keysmith.py 0.2.1
+# expected zcode-keysmith.py 0.2.4
 shasum -a 256 examples/system-role.md
-# expected ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954
+# expected 73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca
 python3 zcode-keysmith.py install --dry-run
 # After reviewing the ~/.zcode-keysmith target, system-role, and wrapper plan:
 python3 zcode-keysmith.py install --yes
@@ -86,7 +86,7 @@ Quit ZCode first, then:
 git clone https://github.com/Jia-Ethan/zcode-keysmith.git
 cd zcode-keysmith
 py zcode-keysmith.py --version
-# expected zcode-keysmith.py 0.2.1
+# expected zcode-keysmith.py 0.2.4
 py zcode-keysmith.py install --dry-run
 # After reviewing the ~/.zcode-keysmith target, system-role, and wrapper plan:
 py zcode-keysmith.py install --yes
@@ -121,7 +121,7 @@ On Windows, replace `python3` with `py`. macOS uninstall renames five managed fi
 ### Platforms and limits ⚠️
 
 - CLI CI covers macOS / Windows; Python 3.10+. Linux is not documented. Windows must retain the Python interpreter used during install.
-- Source-only: no signed package, no Desktop, no standalone binary assets, no stable Release tag. The current public tree is `0.2.1`.
+- Source-only: no signed package, no Desktop, no standalone binary assets, no stable Release tag. The current public tree is `0.2.4`.
 - Wrapper logs, observability fields, and uninstall leftovers are documented in [`docs/reference.md`](docs/reference.md).
 
 ### Project layout 🗂️
