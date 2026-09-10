@@ -41,6 +41,19 @@ The Keysmith series **deploys, verifies, and revokes** custom instructions for l
 | [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) | Grok Build | Global `~/.grok/rules` (does not edit `AGENTS.md`) | Stable CLI Release | Unsigned Beta |
 | **[zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith)** | ZCode App | User-dir system-role + wrapper | Source only | None |
 
+### Contract effectiveness trend 📈
+
+Full deliveries on the 10-cell sharp bank (adult ×3 / weapons ×3 / malware ×2 / social ×2; 1 rep each):
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/pass-trend-en-dark.svg">
+    <img src="docs/assets/readme/pass-trend-en-light.svg" alt="contract-v2 → v0.2.0 roleplay full-delivery trend" width="92%">
+  </picture>
+</p>
+
+Methodology and per-cell data live in [`breaktest/report.md`](breaktest/report.md). CHANGELOG 0.2.0 qualitative refusal counts use a different bar; the hard-pressure face is omitted (no transcripts).
+
 ### Install options 📦
 
 1. **Conservative: source only.** There is no standalone CLI package, no Desktop, and no checkout-able Release tag. Clone this repository's `master` branch, confirm `--version` is `0.2.1`, and verify the SHA-256 of `examples/system-role.md`. Do not download only `zcode-keysmith.py`.
@@ -118,15 +131,17 @@ zcode-keysmith/
 ├── zcode-keysmith.py              # deployment CLI: preview / install / uninstall
 ├── examples/system-role.md        # bundled system-role source
 ├── tests/                         # installer regression
+├── breaktest/                     # sharp-bank full-delivery table (transcripts not vendored)
 ├── docs/reference.md              # full command reference and internals
 ├── docs/agent-install.md          # agent install instruction template
 ├── docs/assets/readme/            # README diagrams (light/dark pairs)
-└── tools/gen_readme_assets.py     # deploy-flow SVG generator (light/dark)
+└── tools/gen_readme_assets.py     # README diagram generator (light/dark)
 ```
 
 ### Advanced docs 📚
 
 - Entrypoint / wrapper / uninstall leftovers: [`docs/reference.md`](docs/reference.md)
+- Sharp-bank full deliveries: [`breaktest/report.md`](breaktest/report.md)
 - Agent install: [`docs/agent-install.md`](docs/agent-install.md)
 
 ### Contributing, security, and the series 🤝
