@@ -2,48 +2,14 @@
 
 # 复制给智能体安装 / Copy this to an agent
 
-把下面这段话复制给 Codex、Claude Code、Cursor Agent、ChatGPT Agent 或其他本地智能体。执行流程只有一次确认：确认是否写入持久化入口文件。
+## 简体中文
 
 ```text
-请使用 https://github.com/Jia-Ethan/zcode-keysmith 帮我安装 ZCode App 的 managed true system-role entrypoint。
-
-执行要求：
-1. 先阅读 README.md 和 zcode-keysmith.py。
-2. 识别当前平台；Windows 使用 `py`，macOS 使用 `python3`。运行对应的 `zcode-keysmith.py install --dry-run`。
-3. 向我展示将写入的准确路径，必须包括：
-   - ~/.zcode-keysmith/system-role.md
-   - ~/.zcode-keysmith/config.json
-   - ~/.zcode-keysmith/bin/zcode-agent-wrapper.py
-   - Windows：~/.zcode-keysmith/bin/zcode-keysmith-env.ps1 和 HKCU\Environment 的 ZCODE_* 值
-   - macOS：~/.zcode-keysmith/bin/zcode-keysmith-env.sh 和 ~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist
-4. 同时展示将使用的 ZCode runtime 路径、ZCode node command 路径、agent-server args，以及 app_bundle_modified: false。
-5. API key、token、MCP 配置、ZCode provider 配置由 ZCode 自身管理；安装器不读取、不保存、不打印这些内容。
-6. 只问我一次：是否确认写入以上持久化入口文件。
-7. 我确认后，用当前平台对应的 Python 命令运行 `zcode-keysmith.py install --yes`。
-8. 写入后运行 `doctor`。
-9. 再运行 `verify`。
-10. 提醒我重新打开 ZCode，然后新建任务测试"你是谁"。测试后再次运行 verify，确认 wrapper_invoked: true。
+请从公开仓库 https://github.com/Jia-Ethan/zcode-keysmith 安装 zcode-keysmith 0.2.1。只 clone 当前 `master` 源码树，不要虚构 Release ZIP / tag 检出；检出后确认 `python3 zcode-keysmith.py --version`（Windows 用 `py`）输出 `0.2.1`，并校验 examples/system-role.md 的 SHA-256 为 `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`。识别当前平台：Windows 使用 `py`，macOS 使用 `python3`。运行 --version、install --dry-run 和 doctor，报告目标 ~/.zcode-keysmith 目录、内置提示词来源与 SHA-256、将写入的 system-role.md / config.json / wrapper / env 脚本路径、macOS LaunchAgent 或 Windows HKCU\Environment 的 ZCODE_* 计划、ZCode runtime 与 node command 路径，以及 app_bundle_modified: false。默认只预览；等我明确确认后才添加 --yes。写入后运行 doctor 与 verify。提醒我完全退出并重新打开 ZCode，新建任务后再运行 verify，确认 wrapper_invoked: true。不要删除任何备份，不修改 ZCode 原包、网络、运行中进程、API key、token、cookie、MCP 或 provider 配置。
 ```
 
-English version:
+## English
 
 ```text
-Use https://github.com/Jia-Ethan/zcode-keysmith to install the managed true system-role entrypoint for my local ZCode App.
-
-Requirements:
-1. Read README.md and zcode-keysmith.py first.
-2. Detect the platform; use `py` on Windows and `python3` on macOS. Run the matching `zcode-keysmith.py install --dry-run` command.
-3. Show the exact write targets:
-   - ~/.zcode-keysmith/system-role.md
-   - ~/.zcode-keysmith/config.json
-   - ~/.zcode-keysmith/bin/zcode-agent-wrapper.py
-   - Windows: ~/.zcode-keysmith/bin/zcode-keysmith-env.ps1 and ZCODE_* values under HKCU\Environment
-   - macOS: ~/.zcode-keysmith/bin/zcode-keysmith-env.sh and ~/Library/LaunchAgents/com.jia.zcode-keysmith.env.plist
-4. Also show the ZCode runtime path, ZCode node command path, agent-server args, and app_bundle_modified: false.
-5. API keys, tokens, MCP config, and provider config stay managed by ZCode. The installer must not read, store, or print them.
-6. Ask once whether to write the managed entrypoint files.
-7. After confirmation, run `zcode-keysmith.py install --yes` with the platform's Python command.
-8. Then run `doctor`.
-9. Then run `verify`.
-10. Tell me to reopen ZCode and test a fresh task with "Who are you?". After the test, run verify again and confirm wrapper_invoked: true.
+Install zcode-keysmith 0.2.1 from the public repository https://github.com/Jia-Ethan/zcode-keysmith. Clone the current `master` source tree only; do not invent a Release ZIP or tag checkout. After checkout, confirm that `python3 zcode-keysmith.py --version` (`py` on Windows) reports `0.2.1`, and verify that the SHA-256 of examples/system-role.md is `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`. Detect the platform; use `py` on Windows and `python3` on macOS. Run --version, install --dry-run, and doctor, then report the target ~/.zcode-keysmith directory, the bundled prompt source and its SHA-256, the planned system-role.md / config.json / wrapper / env-script paths, the macOS LaunchAgent or Windows HKCU\Environment ZCODE_* plan, the ZCode runtime and node-command paths, and app_bundle_modified: false. Preview only by default; wait for my explicit confirmation before adding --yes. After writing, run doctor and verify. Tell me to quit and reopen ZCode, start a fresh task, then run verify again and confirm wrapper_invoked: true. Do not delete any backups, and do not modify the ZCode app bundle, network, running processes, API keys, tokens, cookies, MCP, or provider config.
 ```

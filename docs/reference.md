@@ -1,12 +1,22 @@
 <!-- markdownlint-disable MD013 -->
 
-# 命令参考与可观测性字段 / Command reference and observability fields
+# 命令参考与内部机制 / Command reference and internals
 
-日常使用只需要 [`README.md`](../README.md) 的快速开始；本页保存原理、字段表和验证步骤。
+日常使用只需要 [`README.md`](../README.md) 的「快速开始」；本页是完整字段、入口机制和维护者验证细节。
+
+机器契约：`--json` 输出 `zcode-keysmith/v1`，字段为 schema / operation / mode / ok / actions / warnings / blockers / exit_status / error。`install` / `uninstall` 在没有 `--yes` 时只预览；`--dry-run` 与 `--yes` 同时出现时 `--dry-run` 优先。
+
+> README 只保留用户面的快速开始与撤销入口。wrapper 原理、可观测性字段、卸载残留与手工回滚，统一在本页维护。
 
 ---
 
 ## 简体中文
+
+### 源码安装面
+
+- 稳妥安装 clone 当前 `master` 源码树，校验 `--version` 为 `0.2.1`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，经 wrapper 进入 ZCode agent-server 的 system message 路径，**不改** App 原包。
+- 仅源码：没有独立二进制资产、没有 `pip` / npm、没有已发布 Desktop 安装包、没有可检出的 Release tag。
+- 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`。
 
 ### 原理
 
@@ -21,7 +31,7 @@ macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zc
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
-`v0.2.1` Release **仅提供 GitHub 自动源码归档**，没有独立二进制资产或 `pip` / npm 安装包。安装面是下载源码归档或 clone 后运行 `zcode-keysmith.py`；桌面客户端源码位于 `gui/`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
+当前公开树版本 `0.2.1` **只有源码**：没有独立二进制资产、Desktop 客户端、`pip` / npm 安装包或可检出的 Release tag。安装面只有 clone 后运行 `zcode-keysmith.py`。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
 
 `install --dry-run` 仍会读取源提示词并检查本机 runtime 是否可打补丁。本机找不到可识别的 ZCode 安装时，预览会失败。可用 `--zcode-app` 或 `ZCODE_APP_PATH` 指定路径。
 
@@ -98,24 +108,6 @@ macOS 的 `uninstall --yes` 把五个受管理文件改名为 `.bak_YYYYMMDD_HHM
 
 安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的逐文件原子写入目标里，卸载也不清理它们；macOS 的五个文件或 Windows 的四个文件之间都不是一个整体事务。
 
-### 项目结构
-
-```text
-zcode-keysmith/
-├── zcode-keysmith.py
-├── examples/
-│   └── system-role.md
-├── tests/
-│   └── test_zcode_keysmith.py
-├── docs/
-│   ├── reference.md
-│   ├── agent-install.md
-│   └── legacy/
-├── .gitignore
-├── README.md / README.en.md
-└── LICENSE
-```
-
 ### 验证
 
 ```bash
@@ -130,6 +122,12 @@ python3 zcode-keysmith.py verify
 
 ## English
 
+### Source-only install
+
+- Clone the current `master` source tree and confirm `--version` is `0.2.1`. That version writes `~/.zcode-keysmith/system-role.md` and routes it through the wrapper into ZCode agent-server's system-message path. The app bundle is **not** modified.
+- Source only: no standalone binary assets, no pip/npm package, no published Desktop, no checkout-able Release tag.
+- Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `ea1d678e9aa72056259ad5e1ccacdff486a07581c1c09d6e5c36e5e91dadd954`.
+
 ### How it works
 
 The ZCode desktop app reads these variables when starting agent-server:
@@ -143,7 +141,7 @@ On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmit
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
-The `v0.2.1` Release provides **GitHub-generated source archives only**, with no standalone binary assets or pip/npm package. Install from a source archive or clone the repo, then run `zcode-keysmith.py`; the Desktop client source is under `gui/`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
+The current public tree `0.2.1` is **source only**: no standalone binary assets, Desktop client, pip/npm package, or checkout-able Release tag. Clone the repo, then run `zcode-keysmith.py`. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
 
 `install --dry-run` still reads the source prompt and checks that the local runtime is patchable. Preview fails if no recognizable ZCode installation is present. Pass `--zcode-app` or `ZCODE_APP_PATH` for a non-default location.
 
