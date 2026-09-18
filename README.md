@@ -31,7 +31,7 @@
 
 Keysmith 给本机的 AI 编程工具装指令：先预览，再写入，能验证，能撤走。
 
-`zcode-keysmith` 面向 **ZCode**。装上之后，新开的对话会按这份指令工作。不改 ZCode 软件本身，也不读取账号和密钥。
+`zcode-keysmith` 面向 **ZCode**。装上之后，新开的对话会按这份指令工作。不读取账号和密钥。ZCode 3.12+ 为了保住独立存储启动和 Keysmith 注入，会备份并补丁 `glm/zcode.cjs`；卸载还原。更早版本不改 App 原包。
 
 > [!IMPORTANT]
 > 这会改变 ZCode **之后新开的对话**。默认只给你看计划，加上确认才会写入。装完后请完全退出并重新打开 ZCode。

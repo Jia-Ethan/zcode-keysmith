@@ -14,7 +14,7 @@
 
 ### 源码安装面
 
-- 稳妥安装检出 tag `v0.3.0`，校验 `--version` 为 `0.3.0`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径，**不改** App 原包。ZCode 3.12+ 走用户目录 preload；更早版本仍走 wrapper。
+- 稳妥安装检出 tag `v0.3.0`，校验 `--version` 为 `0.3.0`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径。ZCode 3.12+ 不劫持 agent-server command，改为备份并补丁 `glm/zcode.cjs`（`app_bundle_modified: true`，卸载还原）；更早版本仍走 wrapper，不改原包。
 - 仅源码：没有独立二进制资产、没有 `pip` / npm、没有已发布 Desktop 安装包。
 - 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`。
 
@@ -24,7 +24,7 @@ ZCode 3.12 桌面端启动时会先做独立 session storage 准备。官方配�
 
 因此安装器按本机 App 选择注入方式：
 
-- **ZCode 3.12+（asar 含 `supportsStorageStartup`）**：不覆盖 agent-server command。安装 `~/.zcode-keysmith/bin/zcode-keysmith-preload.cjs`，并把 `--require` 合并进 `NODE_OPTIONS`。preload 只在加载 `zcode.cjs` 时打同一处 `customSystemPrompt` 补丁，官方 runtime 仍负责 `--prepare-storage`。安装时会清掉旧的 `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON`。
+- **ZCode 3.12+（asar 含 `supportsStorageStartup`）**：不覆盖 agent-server command，也不设置 `NODE_OPTIONS`。打包 Electron 会删掉父进程 `NODE_OPTIONS`，preload 进不了 agent，破甲会掉。安装器备份 vendor `glm/zcode.cjs`，原地把 `customSystemPrompt` 改成 **优先读** `~/.zcode-keysmith/system-role.md`，官方 runtime 仍负责 `--prepare-storage`。安装时清掉旧的 `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`。卸载把 runtime 从备份还原。
 - **更早的 ZCode**：仍读取
 
 ```text
@@ -107,7 +107,7 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### 卸载残留
 
-macOS 的 `uninstall --yes` 把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、LaunchAgent plist，并清掉当前会话的 Keysmith 入口。3.12+ 安装写入的 `NODE_OPTIONS --require` 会从现有 `NODE_OPTIONS` 里拆掉，不整段清空。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
+macOS 的 `uninstall --yes` 把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、LaunchAgent plist，并清掉当前会话的 Keysmith 入口。若本次安装补丁过 `glm/zcode.cjs`，先从 `runtime_original_backup` 还原。残留的 Keysmith `NODE_OPTIONS --require` 会 unset。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
 
 没有 `recover` / `restore` 子命令。macOS 手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境。Windows 正常卸载已经自动恢复安装前的环境；如需手工恢复文件，可运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.ps1` 重新激活 Keysmith。最后退出并重新打开 ZCode，再运行 `verify`。
 
@@ -129,7 +129,7 @@ python3 zcode-keysmith.py verify
 
 ### Source-only install
 
-- Check out tag `v0.3.0` and confirm `--version` is `0.3.0`. That version writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. The app bundle is **not** modified. ZCode 3.12+ uses a user-space preload; older builds still use the wrapper.
+- Check out tag `v0.3.0` and confirm `--version` is `0.3.0`. That version writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. ZCode 3.12+ does not hijack the agent-server command; it backs up and patches `glm/zcode.cjs` (`app_bundle_modified: true`, restored on uninstall). Older builds still use the wrapper and leave the vendor runtime untouched.
 - Source only: no standalone binary assets, no pip/npm package, no published Desktop.
 - Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`.
 
@@ -139,7 +139,7 @@ ZCode 3.12 desktop startup prepares isolated session storage first. The official
 
 The installer therefore chooses an injection mode from the local app:
 
-- **ZCode 3.12+ (asar contains `supportsStorageStartup`)**: do not override the agent-server command. Install `~/.zcode-keysmith/bin/zcode-keysmith-preload.cjs` and merge `--require` into `NODE_OPTIONS`. The preload patches only the `customSystemPrompt` anchor when `zcode.cjs` loads, so the official runtime still handles `--prepare-storage`. Install clears leftover `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON`.
+- **ZCode 3.12+ (asar contains `supportsStorageStartup`)**: do not override the agent-server command, and do not set `NODE_OPTIONS`. Packaged Electron deletes parent `NODE_OPTIONS`, so a preload never reaches the agent and Keysmith does not inject. The installer backs up vendor `glm/zcode.cjs` and patches `customSystemPrompt` so it **prefers** `~/.zcode-keysmith/system-role.md`. The official runtime still handles `--prepare-storage`. Install clears leftover `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`. Uninstall restores the runtime from the backup.
 - **Older ZCode**: still reads
 
 ```text
@@ -208,7 +208,7 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### Uninstall leftovers
 
-On macOS, `uninstall --yes` renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, LaunchAgent) and clears the current Keysmith entrypoint. A 3.12+ `--require` flag is stripped from `NODE_OPTIONS` instead of deleting the whole variable. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
+On macOS, `uninstall --yes` restores a patched `glm/zcode.cjs` from `runtime_original_backup` when `app_bundle_modified` is true, then renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, LaunchAgent) and clears the current Keysmith entrypoint, including leftover Keysmith `NODE_OPTIONS`. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
 
 There is no `recover` / `restore` subcommand. On macOS, manual rollback restores one matching `.bak_*` set and runs the restored `zcode-keysmith-env.sh`. Windows normal uninstall already restores pre-install environment values; a manually restored install can be reactivated with `zcode-keysmith-env.ps1`. Quit and reopen ZCode, start a fresh task, and run `verify` afterward.
 

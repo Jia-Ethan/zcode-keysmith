@@ -31,7 +31,7 @@
 
 Keysmith installs instructions onto local AI coding tools: preview, apply, verify, and undo.
 
-`zcode-keysmith` is the installer for **ZCode**. After it is on, new conversations follow the instruction. The ZCode app itself is not modified, and accounts and keys are never read.
+`zcode-keysmith` is the installer for **ZCode**. After it is on, new conversations follow the instruction. Accounts and keys are never read. On ZCode 3.12+ the installer backs up and patches `glm/zcode.cjs` so isolated storage startup still works and Keysmith still injects; uninstall restores the vendor file. Older builds leave the app bundle untouched.
 
 > [!IMPORTANT]
 > This changes **later new conversations** in ZCode. Commands show the plan first and write only when you confirm. After installing, fully quit and reopen ZCode.
