@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 兼容 ZCode 3.12 桌面端独立存储启动：检测到 `supportsStorageStartup` 后不再设置 `ZCODE_AGENT_SERVER_COMMAND`，改为通过 `NODE_OPTIONS --require` 加载用户目录 preload，并清掉旧的 agent-server 劫持。旧版 ZCode 仍走 wrapper。
 - README 插图换成系列暖金钥匙静物（hero、使用方式、dry-run 预览）。效果图数字仍是 1/10 → 4/10，未改。
 
 ## [0.3.0] - 2026-09-10

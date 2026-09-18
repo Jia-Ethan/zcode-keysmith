@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Install a managed true-system prompt entrypoint for the local ZCode App.
 
-The installer leaves the ZCode app bundle untouched. It installs a small wrapper
-that ZCode can launch through its agent-server environment override. The wrapper
-runs a cached copy of the bundled ZCode runtime with one narrow patch: when the
-runtime builds its context, it reads the managed system-role.md as the main
-runtime system prompt unless ZCode has already provided an explicit one.
+The installer leaves the ZCode app bundle untouched. It installs a managed
+system-role.md plus a narrow runtime patch. On ZCode 3.12+ desktop builds that
+require isolated session-storage startup, the installer must not override
+ZCODE_AGENT_SERVER_COMMAND: that path drops supportsStorageStartup and the app
+stays on the startup failure screen. Those builds load a user-space preload
+through NODE_OPTIONS instead. Older ZCode builds still use the agent-server
+wrapper override.
 """
 
 from __future__ import annotations
@@ -45,6 +47,7 @@ DEFAULT_MANAGED_DIR = Path.home() / ".zcode-keysmith"
 DEFAULT_SYSTEM_FILE_NAME = "system-role.md"
 DEFAULT_CONFIG_FILE_NAME = "config.json"
 DEFAULT_WRAPPER_NAME = "zcode-agent-wrapper.py"
+DEFAULT_PRELOAD_NAME = "zcode-keysmith-preload.cjs"
 DEFAULT_ENV_SCRIPT_NAME = "zcode-keysmith-env.sh"
 DEFAULT_WINDOWS_ENV_SCRIPT_NAME = "zcode-keysmith-env.ps1"
 DEFAULT_LAUNCH_AGENT_LABEL = "com.jia.zcode-keysmith.env"
@@ -56,14 +59,22 @@ DEFAULT_ZCODE_NODE_COMMAND = DEFAULT_ZCODE_HELPER_NODE_COMMAND
 FALLBACK_ZCODE_NODE_COMMAND = DEFAULT_ZCODE_APP / "Contents" / "MacOS" / "ZCode"
 DEFAULT_AGENT_ARGS_JSON = '["app-server","--stdio"]'
 PATCH_NEEDLE = "customSystemPrompt:this.config.systemPrompt,language:"
-MANAGED_ENV_KEYS = (
+STORAGE_STARTUP_NEEDLE = b"supportsStorageStartup"
+LEGACY_AGENT_OVERRIDE_ENV_KEYS = (
     "ZCODE_AGENT_SERVER_COMMAND",
     "ZCODE_AGENT_SERVER_ARGS_JSON",
+)
+CORE_KEYSMITH_ENV_KEYS = (
     "ZCODE_KEYSMITH_SYSTEM_FILE",
     "ZCODE_KEYSMITH_ORIGINAL",
     "ZCODE_KEYSMITH_NODE_COMMAND",
     "ZCODE_KEYSMITH_CACHE_DIR",
     "ZCODE_KEYSMITH_LOG_DIR",
+)
+NODE_OPTIONS_ENV_KEY = "NODE_OPTIONS"
+MANAGED_ENV_KEYS = (
+    *LEGACY_AGENT_OVERRIDE_ENV_KEYS,
+    *CORE_KEYSMITH_ENV_KEYS,
 )
 
 
@@ -77,6 +88,7 @@ class InstallPaths:
     system_file: Path
     config_file: Path
     wrapper: Path
+    preload: Path
     env_script: Path
     launch_agent: Path | None
     log_dir: Path
@@ -91,6 +103,7 @@ class InstallPlan:
     zcode_runtime: Path
     node_command: Path
     activate: bool
+    injection_mode: str = "wrapper"
 
 
 def expand_path(value: str | Path) -> Path:
@@ -110,6 +123,7 @@ def build_paths(managed_dir: Path, launch_agent: Path | None = None) -> InstallP
         system_file=managed_dir / DEFAULT_SYSTEM_FILE_NAME,
         config_file=managed_dir / DEFAULT_CONFIG_FILE_NAME,
         wrapper=bin_dir / DEFAULT_WRAPPER_NAME,
+        preload=bin_dir / DEFAULT_PRELOAD_NAME,
         env_script=bin_dir / (DEFAULT_WINDOWS_ENV_SCRIPT_NAME if is_windows else DEFAULT_ENV_SCRIPT_NAME),
         launch_agent=None if is_windows else (expand_path(launch_agent) if launch_agent else default_launch_agent_path()),
         log_dir=managed_dir / "logs",
@@ -278,6 +292,10 @@ def zcode_app_from_runtime(runtime_path: Path) -> Path | None:
 
 
 def app_supports_agent_server_override(zcode_app: Path | None) -> bool:
+    return app_asar_contains(zcode_app, b"ZCODE_AGENT_SERVER_COMMAND")
+
+
+def app_asar_contains(zcode_app: Path | None, needle: bytes) -> bool:
     if not zcode_app:
         return False
     app_asar = (
@@ -289,7 +307,6 @@ def app_supports_agent_server_override(zcode_app: Path | None) -> bool:
         return False
     try:
         overlap = b""
-        needle = b"ZCODE_AGENT_SERVER_COMMAND"
         with app_asar.open("rb") as handle:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 data = overlap + chunk
@@ -299,6 +316,14 @@ def app_supports_agent_server_override(zcode_app: Path | None) -> bool:
     except OSError:
         return False
     return False
+
+
+def app_requires_storage_startup(zcode_app: Path | None) -> bool:
+    return app_asar_contains(zcode_app, STORAGE_STARTUP_NEEDLE)
+
+
+def injection_mode_for_app(zcode_app: Path | None) -> str:
+    return "preload" if app_requires_storage_startup(zcode_app) else "wrapper"
 
 
 def is_zcode_running() -> bool:
@@ -509,6 +534,7 @@ def install_managed_files(
         (plan.paths.system_file, system_prompt, None),
         (plan.paths.config_file, config, None),
         (plan.paths.wrapper, render_wrapper(plan), 0o755),
+        (plan.paths.preload, render_preload(plan), 0o644),
         (plan.paths.env_script, render_env_script(plan), 0o755),
     ]
     staged: list[tuple[Path, Path]] = []
@@ -583,16 +609,71 @@ def agent_server_args_json(plan: InstallPlan) -> str:
     return json.dumps(args, ensure_ascii=False, separators=(",", ":"))
 
 
+def uses_preload_injection(plan: InstallPlan) -> bool:
+    return plan.injection_mode == "preload"
+
+
+def node_options_require_flag(plan: InstallPlan) -> str:
+    return f"--require {plan.paths.preload}"
+
+
+def merge_node_options(existing: str | None, require_flag: str) -> str:
+    parts = [part for part in (existing or "").split() if part]
+    flag_parts = require_flag.split()
+    if len(flag_parts) >= 2:
+        for index, part in enumerate(parts[:-1]):
+            if part == flag_parts[0] and parts[index + 1] == flag_parts[1]:
+                return " ".join(parts)
+    parts.extend(flag_parts)
+    return " ".join(parts)
+
+
+def strip_node_options(existing: str | None, require_flag: str) -> str | None:
+    parts = [part for part in (existing or "").split() if part]
+    flag_parts = require_flag.split()
+    if len(flag_parts) >= 2:
+        filtered: list[str] = []
+        skip = False
+        for index, part in enumerate(parts):
+            if skip:
+                skip = False
+                continue
+            if part == flag_parts[0] and index + 1 < len(parts) and parts[index + 1] == flag_parts[1]:
+                skip = True
+                continue
+            filtered.append(part)
+        parts = filtered
+    return " ".join(parts) or None
+
+
+def node_options_value(plan: InstallPlan, existing: str | None = None) -> str:
+    if existing is None:
+        existing = os.environ.get(NODE_OPTIONS_ENV_KEY)
+    return merge_node_options(existing, node_options_require_flag(plan))
+
+
 def env_values(plan: InstallPlan) -> dict[str, str]:
-    return {
-        "ZCODE_AGENT_SERVER_COMMAND": agent_server_command(plan),
-        "ZCODE_AGENT_SERVER_ARGS_JSON": agent_server_args_json(plan),
+    values = {
         "ZCODE_KEYSMITH_SYSTEM_FILE": str(plan.paths.system_file),
         "ZCODE_KEYSMITH_ORIGINAL": str(plan.zcode_runtime),
         "ZCODE_KEYSMITH_NODE_COMMAND": str(plan.node_command),
         "ZCODE_KEYSMITH_CACHE_DIR": str(plan.paths.cache_dir),
         "ZCODE_KEYSMITH_LOG_DIR": str(plan.paths.log_dir),
     }
+    if uses_preload_injection(plan):
+        values[NODE_OPTIONS_ENV_KEY] = node_options_value(plan)
+    else:
+        values["ZCODE_AGENT_SERVER_COMMAND"] = agent_server_command(plan)
+        values["ZCODE_AGENT_SERVER_ARGS_JSON"] = agent_server_args_json(plan)
+    return values
+
+
+def managed_env_keys_for_plan(plan: InstallPlan) -> tuple[str, ...]:
+    return tuple(env_values(plan))
+
+
+def all_managed_env_keys() -> tuple[str, ...]:
+    return MANAGED_ENV_KEYS
 
 
 def render_env_script(plan: InstallPlan) -> str:
@@ -647,17 +728,20 @@ def render_config(
 ) -> str:
     payload = {
         "tool_version": VERSION,
-        "mode": "zcode-app-wrapper",
+        "mode": "zcode-app-preload" if uses_preload_injection(plan) else "zcode-app-wrapper",
+        "injection_mode": plan.injection_mode,
         "system_file": str(plan.paths.system_file),
         "wrapper": str(plan.paths.wrapper),
+        "preload": str(plan.paths.preload),
         "env_script": str(plan.paths.env_script),
         "launch_agent": str(plan.paths.launch_agent) if plan.paths.launch_agent else None,
         "zcode_runtime": str(plan.zcode_runtime),
         "node_command": str(plan.node_command),
         "cache_dir": str(plan.paths.cache_dir),
         "wrapper_log": str(plan.paths.wrapper_log),
-        "agent_server_command": agent_server_command(plan),
-        "agent_server_args_json": agent_server_args_json(plan),
+        "agent_server_command": None if uses_preload_injection(plan) else agent_server_command(plan),
+        "agent_server_args_json": None if uses_preload_injection(plan) else agent_server_args_json(plan),
+        "node_options": node_options_value(plan) if uses_preload_injection(plan) else None,
         "environment": env_values(plan),
         "app_bundle_modified": False,
     }
@@ -665,6 +749,72 @@ def render_config(
         payload["platform"] = "Windows"
         payload["previous_user_environment"] = previous_user_environment or {}
     return json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+
+
+def render_preload(plan: InstallPlan) -> str:
+    system_file_json = json.dumps(str(plan.paths.system_file), ensure_ascii=False)
+    log_dir_json = json.dumps(str(plan.paths.log_dir), ensure_ascii=False)
+    return (
+        "\"use strict\";\n"
+        "const fs = require(\"node:fs\");\n"
+        "const path = require(\"node:path\");\n"
+        f"const SYSTEM_FILE = process.env.ZCODE_KEYSMITH_SYSTEM_FILE || {system_file_json};\n"
+        f"const LOG_DIR = process.env.ZCODE_KEYSMITH_LOG_DIR || {log_dir_json};\n"
+        "const LOG_FILE = path.join(LOG_DIR, \"wrapper-start.jsonl\");\n"
+        "const NEEDLE = \"customSystemPrompt:this.config.systemPrompt,language:\";\n"
+        "\n"
+        "function managedPromptExpression() {\n"
+        "  const file = JSON.stringify(process.env.ZCODE_KEYSMITH_SYSTEM_FILE || SYSTEM_FILE);\n"
+        "  return (\n"
+        "    \"(this.config.systemPrompt&&this.config.systemPrompt.trim()?this.config.systemPrompt:\" +\n"
+        "    \"(()=>{try{let e=process.env.ZCODE_KEYSMITH_SYSTEM_FILE||\" +\n"
+        "    file +\n"
+        "    \";let t=require(\\\"node:fs\\\");return t.existsSync(e)?t.readFileSync(e,\\\"utf8\\\"):void 0}catch{return void 0}})())\"\n"
+        "  );\n"
+        "}\n"
+        "\n"
+        "function patchSource(source) {\n"
+        "  if (!source.includes(NEEDLE)) return source;\n"
+        "  return source.replace(NEEDLE, \"customSystemPrompt:\" + managedPromptExpression() + \",language:\");\n"
+        "}\n"
+        "\n"
+        "function logInvocation() {\n"
+        "  try {\n"
+        "    fs.mkdirSync(LOG_DIR, { recursive: true });\n"
+        "    const event = {\n"
+        "      started_at: new Date().toISOString(),\n"
+        "      pid: process.pid,\n"
+        "      argv: process.argv,\n"
+        "      agent_args: process.argv.slice(1),\n"
+        "      runtime: __filename,\n"
+        "      original_runtime: process.env.ZCODE_KEYSMITH_ORIGINAL || null,\n"
+        "      system_file: SYSTEM_FILE,\n"
+        "      node_command: process.execPath,\n"
+        "      injection_mode: \"preload\",\n"
+        "    };\n"
+        "    fs.appendFileSync(LOG_FILE, JSON.stringify(event) + \"\\n\");\n"
+        "  } catch {\n"
+        "    // Observability must not block agent-server startup.\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        "function shouldAttach() {\n"
+        "  const haystack = [process.execPath, ...process.argv].join(\" \\n\");\n"
+        "  return /zcode\\.cjs|app-server/.test(haystack);\n"
+        "}\n"
+        "if (shouldAttach()) {\n"
+        "  const Module = require(\"node:module\");\n"
+        "  const originalCompile = Module.prototype._compile;\n"
+        "  Module.prototype._compile = function (content, filename) {\n"
+        "    if (typeof filename === \"string\" && filename.endsWith(\"zcode.cjs\")) {\n"
+        "      const patched = patchSource(content);\n"
+        "      if (patched !== content) logInvocation();\n"
+        "      content = patched;\n"
+        "    }\n"
+        "    return originalCompile.call(this, content, filename);\n"
+        "  };\n"
+        "}\n"
+    )
 
 
 def render_wrapper(plan: InstallPlan) -> str:
@@ -937,6 +1087,10 @@ def load_saved_config(paths: InstallPaths) -> dict[str, object] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
+def tracked_env_keys() -> tuple[str, ...]:
+    return (*MANAGED_ENV_KEYS, NODE_OPTIONS_ENV_KEY)
+
+
 def capture_previous_windows_environment(paths: InstallPaths) -> dict[str, dict[str, object] | None]:
     saved = load_saved_config(paths)
     if saved and saved.get("platform") == "Windows":
@@ -944,22 +1098,35 @@ def capture_previous_windows_environment(paths: InstallPaths) -> dict[str, dict[
         if isinstance(previous, dict):
             return {
                 key: previous.get(key) if isinstance(previous.get(key), dict) else None
-                for key in MANAGED_ENV_KEYS
+                for key in tracked_env_keys()
             }
-    return {key: get_windows_user_env_entry(key) for key in MANAGED_ENV_KEYS}
+    return {key: get_windows_user_env_entry(key) for key in tracked_env_keys()}
+
+
+def stale_env_keys(plan: InstallPlan) -> tuple[str, ...]:
+    desired = set(env_values(plan))
+    return tuple(key for key in MANAGED_ENV_KEYS if key not in desired)
 
 
 def activate_current_session(plan: InstallPlan) -> list[str]:
+    desired = env_values(plan)
+    stale = stale_env_keys(plan)
     if platform.system() == "Windows":
         results = []
 
-        previous = {key: get_windows_user_env_entry(key) for key in MANAGED_ENV_KEYS}
+        previous = {key: get_windows_user_env_entry(key) for key in tracked_env_keys()}
         changed: list[str] = []
         try:
-            for key, value in env_values(plan).items():
+            for key, value in desired.items():
                 set_windows_user_env_entry(key, windows_string_env_entry(value))
                 changed.append(key)
                 results.append(f"user environment {key}: set")
+            for key in stale:
+                if key == NODE_OPTIONS_ENV_KEY:
+                    continue
+                set_windows_user_env_entry(key, None)
+                changed.append(key)
+                results.append(f"user environment {key}: cleared")
             broadcast_windows_environment_change()
         except Exception as exc:
             rollback_errors: list[str] = []
@@ -980,10 +1147,10 @@ def activate_current_session(plan: InstallPlan) -> list[str]:
     if platform.system() != "Darwin":
         return ["launchctl: skipped (non-macOS)"]
     results: list[str] = []
-    previous = {key: launchctl_getenv(key) for key in MANAGED_ENV_KEYS}
+    previous = {key: launchctl_getenv(key) for key in tracked_env_keys()}
     changed: list[str] = []
     try:
-        for key, value in env_values(plan).items():
+        for key, value in desired.items():
             completed = subprocess.run(
                 ["launchctl", "setenv", key, value],
                 text=True,
@@ -996,6 +1163,21 @@ def activate_current_session(plan: InstallPlan) -> list[str]:
                 raise KeysmithError(f"launchctl setenv failed for {key}: {detail}")
             changed.append(key)
             results.append(f"launchctl setenv {key}: ok")
+        for key in stale:
+            if key == NODE_OPTIONS_ENV_KEY:
+                continue
+            completed = subprocess.run(
+                ["launchctl", "unsetenv", key],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if completed.returncode != 0:
+                detail = (completed.stderr or completed.stdout).strip()
+                raise KeysmithError(f"launchctl unsetenv failed for {key}: {detail}")
+            changed.append(key)
+            results.append(f"launchctl unsetenv {key}: ok")
     except Exception as exc:
         rollback_errors: list[str] = []
         for key in reversed(changed):
@@ -1035,14 +1217,17 @@ def install_lines(plan: InstallPlan, dry_run: bool, backups: list[Path], activat
             f"system_file: {plan.paths.system_file}",
             f"config_file: {plan.paths.config_file}",
             f"wrapper: {plan.paths.wrapper}",
+            f"preload: {plan.paths.preload}",
             f"env_script: {plan.paths.env_script}",
             f"launch_agent: {plan.paths.launch_agent or 'not used on Windows'}",
             f"zcode_runtime: {plan.zcode_runtime}",
             f"node_command: {plan.node_command}",
             f"cache_dir: {plan.paths.cache_dir}",
             f"wrapper_log: {plan.paths.wrapper_log}",
-            f"agent_server_command: {agent_server_command(plan)}",
-            f"agent_server_args_json: {agent_server_args_json(plan)}",
+            f"injection_mode: {plan.injection_mode}",
+            f"agent_server_command: {'not used' if uses_preload_injection(plan) else agent_server_command(plan)}",
+            f"agent_server_args_json: {'not used' if uses_preload_injection(plan) else agent_server_args_json(plan)}",
+            f"node_options: {node_options_value(plan) if uses_preload_injection(plan) else 'not used'}",
             f"activate_current_session: {str(plan.activate).lower()}",
             "app_bundle_modified: false",
             "api_key: not read or stored",
@@ -1057,7 +1242,10 @@ def install_lines(plan: InstallPlan, dry_run: bool, backups: list[Path], activat
         lines.append(f"backup: {backup}")
     lines.extend(activation)
     if not dry_run:
-        lines.append("effect: new ZCode agent-server processes will use the managed wrapper")
+        if uses_preload_injection(plan):
+            lines.append("effect: new ZCode agent-server processes will keep the official runtime and load the managed preload")
+        else:
+            lines.append("effect: new ZCode agent-server processes will use the managed wrapper")
     return lines
 
 
@@ -1088,6 +1276,7 @@ def build_install_plan(args: argparse.Namespace) -> InstallPlan:
         zcode_runtime=zcode_runtime,
         node_command=node_command,
         activate=not args.no_activate,
+        injection_mode=injection_mode_for_app(zcode_app_from_runtime(zcode_runtime)),
     )
 
 
@@ -1175,6 +1364,7 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         zcode_runtime=zcode_runtime,
         node_command=node_command,
         activate=False,
+        injection_mode=injection_mode_for_app(zcode_app_from_runtime(zcode_runtime)),
     )
     expected_env = env_values(expected_plan)
     lines = [
@@ -1187,6 +1377,8 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         f"config_file_exists: {str(paths.config_file.exists()).lower()}",
         f"wrapper: {paths.wrapper}",
         f"wrapper_exists: {str(paths.wrapper.exists()).lower()}",
+        f"preload: {paths.preload}",
+        f"preload_exists: {str(paths.preload.exists()).lower()}",
         f"env_script: {paths.env_script}",
         f"env_script_exists: {str(paths.env_script.exists()).lower()}",
         f"launch_agent: {paths.launch_agent or 'not used on Windows'}",
@@ -1194,6 +1386,7 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         f"zcode_runtime: {zcode_runtime}",
         f"zcode_runtime_exists: {str(zcode_runtime.exists()).lower()}",
         f"zcode_runtime_patchable: {str(runtime_patchable).lower()}",
+        f"injection_mode: {expected_plan.injection_mode}",
         f"node_command: {node_command}",
         f"node_command_exists: {str(node_command.exists()).lower()}",
         "app_bundle_modified: false",
@@ -1207,12 +1400,19 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
             f"persistent.{key}: "
             f"{'matches' if persistent_value == expected else 'not set' if not persistent_value else 'different'}"
         )
+    for key in stale_env_keys(expected_plan):
+        persistent_value = persistent_environment_value(key)
+        if persistent_value:
+            lines.append(f"persistent.{key}: leftover")
     return lines
 
 
 def is_agent_server_invocation(event: dict[str, object]) -> bool:
     args = event.get("agent_args")
-    return isinstance(args, list) and len(args) >= 2 and args[0] == "app-server" and args[1] == "--stdio"
+    if not isinstance(args, list):
+        return False
+    tokens = [item for item in args if isinstance(item, str)]
+    return "app-server" in tokens and "--stdio" in tokens
 
 
 def read_last_wrapper_invocation(paths: InstallPaths) -> dict[str, object] | None:
@@ -1269,18 +1469,22 @@ def verify_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path, s
     smoke_ok, smoke_detail = run_wrapper_smoke(paths) if smoke else (False, "skipped")
     last_invocation = read_last_wrapper_invocation(paths)
     wrapper_invoked = last_invocation is not None
+    injection_mode = injection_mode_for_app(zcode_app)
     lines = [
         "zcode-keysmith verify",
         f"system_file_exists: {str(paths.system_file.exists()).lower()}",
         f"system_file_sha256: {prompt_hash or 'missing'}",
         f"wrapper_exists: {str(paths.wrapper.exists()).lower()}",
+        f"preload_exists: {str(paths.preload.exists()).lower()}",
         f"wrapper_smoke: {str(smoke_ok).lower()}",
         f"wrapper_smoke_detail: {smoke_detail}",
         f"wrapper_log: {paths.wrapper_log}",
         f"wrapper_invoked: {str(wrapper_invoked).lower()}",
         f"last_wrapper_start: {last_invocation.get('started_at') if last_invocation else 'missing'}",
         f"zcode_app: {zcode_app or 'unknown'}",
+        f"injection_mode: {injection_mode}",
         f"zcode_agent_override_supported: {str(app_supports_agent_server_override(zcode_app)).lower()}",
+        f"zcode_storage_startup_required: {str(app_requires_storage_startup(zcode_app)).lower()}",
         f"zcode_runtime_exists: {str(zcode_runtime.exists()).lower()}",
         f"zcode_runtime_patchable: {str(runtime_patchable).lower()}",
         f"node_command_exists: {str(node_command.exists()).lower()}",
@@ -1294,7 +1498,7 @@ def verify_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path, s
 
 def uninstall_lines(paths: InstallPaths, dry_run: bool, removed: list[Path], activation: list[str]) -> list[str]:
     lines = ["zcode-keysmith uninstall preview" if dry_run else "zcode-keysmith uninstall complete"]
-    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.env_script]
+    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
     for path in targets:
@@ -1320,7 +1524,7 @@ def restore_windows_user_environment(
 
     results: list[str] = []
     changes: list[tuple[str, dict[str, object] | None]] = []
-    for key in MANAGED_ENV_KEYS:
+    for key in tracked_env_keys():
         expected = installed.get(key)
         if not isinstance(expected, str):
             results.append(f"user environment {key}: unchanged (installed value unknown)")
@@ -1364,10 +1568,44 @@ def unset_current_session_env(paths: InstallPaths) -> list[str]:
     if platform.system() != "Darwin":
         return ["launchctl unsetenv: skipped (non-macOS)"]
     results: list[str] = []
-    previous = {key: launchctl_getenv(key) for key in MANAGED_ENV_KEYS}
+    previous = {key: launchctl_getenv(key) for key in tracked_env_keys()}
     changed: list[str] = []
     try:
-        for key in MANAGED_ENV_KEYS:
+        for key in tracked_env_keys():
+            if key == NODE_OPTIONS_ENV_KEY:
+                current = previous.get(key)
+                require_flag = None
+                config = load_saved_config(paths) or {}
+                installed_env = config.get("environment") if isinstance(config.get("environment"), dict) else {}
+                installed_options = installed_env.get(NODE_OPTIONS_ENV_KEY) if isinstance(installed_env, dict) else None
+                if isinstance(installed_options, str) and "--require " in installed_options:
+                    require_flag = installed_options[installed_options.find("--require "):]
+                    require_flag = " ".join(require_flag.split()[:2])
+                if not require_flag:
+                    continue
+                restored = strip_node_options(current, require_flag)
+                if restored is None:
+                    completed = subprocess.run(
+                        ["launchctl", "unsetenv", key],
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False,
+                    )
+                else:
+                    completed = subprocess.run(
+                        ["launchctl", "setenv", key, restored],
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        check=False,
+                    )
+                if completed.returncode != 0:
+                    detail = (completed.stderr or completed.stdout).strip()
+                    raise KeysmithError(f"launchctl NODE_OPTIONS restore failed: {detail}")
+                changed.append(key)
+                results.append(f"launchctl restore {key}: ok")
+                continue
             completed = subprocess.run(
                 ["launchctl", "unsetenv", key],
                 text=True,
@@ -1413,7 +1651,7 @@ def uninstall(paths: InstallPaths, yes: bool, dry_run_flag: bool, activate: bool
 
 def uninstall_locked(paths: InstallPaths, activate: bool) -> list[str]:
     removed = []
-    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.env_script]
+    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
     config = load_saved_config(paths) if platform.system() == "Windows" else None
@@ -1523,6 +1761,7 @@ def install_report(plan: InstallPlan, dry_run: bool, backups: list[Path], activa
         _json_action(action_name, plan.paths.system_file, "system_file"),
         _json_action(action_name, plan.paths.config_file, "config_file"),
         _json_action(action_name, plan.paths.wrapper, "wrapper"),
+        _json_action(action_name, plan.paths.preload, "preload"),
         _json_action(action_name, plan.paths.env_script, "env_script"),
     ]
     if plan.paths.launch_agent is not None:
@@ -1544,6 +1783,7 @@ def install_report(plan: InstallPlan, dry_run: bool, backups: list[Path], activa
             "write": not dry_run,
             "activation": activation,
             "backups": [str(path) for path in backups],
+            "injection_mode": plan.injection_mode,
             "zcode_running": is_zcode_running(),
         },
     )
@@ -1563,6 +1803,7 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         zcode_runtime=zcode_runtime,
         node_command=node_command,
         activate=False,
+        injection_mode=injection_mode_for_app(zcode_app_from_runtime(zcode_runtime)),
     )
     expected_env = env_values(expected_plan)
     env: dict[str, object] = {}
@@ -1589,6 +1830,8 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         "config_file_exists": paths.config_file.exists(),
         "wrapper": str(paths.wrapper),
         "wrapper_exists": paths.wrapper.exists(),
+        "preload": str(paths.preload),
+        "preload_exists": paths.preload.exists(),
         "env_script": str(paths.env_script),
         "env_script_exists": paths.env_script.exists(),
         "launch_agent": str(paths.launch_agent) if paths.launch_agent else None,
@@ -1600,6 +1843,8 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         "path": str(zcode_runtime),
         "exists": zcode_runtime.exists(),
         "patchable": runtime_patchable,
+        "injection_mode": expected_plan.injection_mode,
+        "storage_startup_required": app_requires_storage_startup(zcode_app_from_runtime(zcode_runtime)),
         "node_command": str(node_command),
         "node_command_exists": node_command.exists(),
     }
@@ -1608,6 +1853,7 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         ("managed system file", paths.system_file.is_file()),
         ("managed config file", paths.config_file.is_file()),
         ("managed wrapper", paths.wrapper.is_file()),
+        ("managed preload", paths.preload.is_file()),
         ("managed environment script", paths.env_script.is_file()),
     ):
         if not present:
@@ -1652,6 +1898,8 @@ def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, 
         blockers.append(f"managed system file missing: {paths.system_file}")
     if not paths.wrapper.is_file():
         blockers.append(f"managed wrapper missing: {paths.wrapper}")
+    if not paths.preload.is_file():
+        blockers.append(f"managed preload missing: {paths.preload}")
     if not zcode_runtime.is_file():
         blockers.append(f"ZCode runtime missing: {zcode_runtime}")
     elif not runtime_patchable:
@@ -1671,6 +1919,7 @@ def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, 
             "system_file_exists": paths.system_file.exists(),
             "system_file_sha256": prompt_hash,
             "wrapper_exists": paths.wrapper.exists(),
+            "preload_exists": paths.preload.exists(),
             "wrapper_smoke": smoke_ok,
             "wrapper_smoke_detail": smoke_detail,
             "wrapper_log": str(paths.wrapper_log),
@@ -1678,6 +1927,8 @@ def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, 
             "last_wrapper_start": last_invocation.get("started_at") if last_invocation else None,
             "zcode_app": str(zcode_app) if zcode_app else None,
             "zcode_agent_override_supported": app_supports_agent_server_override(zcode_app),
+            "zcode_storage_startup_required": app_requires_storage_startup(zcode_app),
+            "injection_mode": injection_mode_for_app(zcode_app),
             "zcode_runtime_exists": zcode_runtime.exists(),
             "zcode_runtime_patchable": runtime_patchable,
             "node_command_exists": node_command.exists(),
@@ -1689,7 +1940,7 @@ def verify_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path, 
 
 def uninstall_report(paths: InstallPaths, dry_run: bool, removed: list[Path], activation: list[str]) -> dict[str, object]:
     action_name = "plan" if dry_run else "remove"
-    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.env_script]
+    targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
     actions = [_json_action(action_name, path, "target") for path in targets]

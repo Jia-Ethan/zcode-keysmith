@@ -161,10 +161,13 @@ def test_install_writes_wrapper_launch_agent_and_config(tmp_path, capsys, monkey
 
     assert wrapper.exists()
     assert env_script.exists()
+    assert (managed / "bin" / "zcode-keysmith-preload.cjs").exists()
     assert "ZCODE_KEYSMITH_SYSTEM_FILE" in wrapper.read_text(encoding="utf-8")
     assert "launchctl setenv ZCODE_AGENT_SERVER_COMMAND" in env_script.read_text(encoding="utf-8")
+    assert "NODE_OPTIONS" not in env_script.read_text(encoding="utf-8")
     assert config["tool_version"] == mod.VERSION
     assert config["mode"] == "zcode-app-wrapper"
+    assert config["injection_mode"] == "wrapper"
     assert config["app_bundle_modified"] is False
     assert plist["Label"] == "com.jia.zcode-keysmith.env"
     assert plist["ProgramArguments"] == [str(env_script)]
@@ -490,8 +493,83 @@ def test_windows_environment_uses_python_and_wrapper_argument(tmp_path, monkeypa
 
     assert values["ZCODE_AGENT_SERVER_COMMAND"] == str(Path(sys.executable).resolve())
     assert args == [str(paths.wrapper), "app-server", "--stdio"]
+    assert "NODE_OPTIONS" not in values
     assert paths.env_script.name == "zcode-keysmith-env.ps1"
     assert paths.launch_agent is None
+    assert paths.preload.name == "zcode-keysmith-preload.cjs"
+
+
+def test_storage_startup_builds_use_preload_instead_of_agent_command_override(tmp_path):
+    runtime = tmp_path / "zcode.cjs"
+    make_runtime(runtime)
+    source = tmp_path / "source.md"
+    source.write_text("# system\n", encoding="utf-8")
+    paths = mod.build_paths(tmp_path / "managed", tmp_path / "agent.plist")
+    plan = mod.InstallPlan(
+        paths=paths,
+        source_system_file=source,
+        zcode_runtime=runtime,
+        node_command=tmp_path / "node",
+        activate=False,
+        injection_mode="preload",
+    )
+
+    values = mod.env_values(plan)
+    env_script = mod.render_env_script(plan)
+    preload = mod.render_preload(plan)
+    config = json.loads(mod.render_config(plan))
+
+    assert "ZCODE_AGENT_SERVER_COMMAND" not in values
+    assert "ZCODE_AGENT_SERVER_ARGS_JSON" not in values
+    assert values["NODE_OPTIONS"] == f"--require {paths.preload}"
+    assert "launchctl setenv ZCODE_AGENT_SERVER_COMMAND" not in env_script
+    assert f"launchctl setenv NODE_OPTIONS '{values['NODE_OPTIONS']}'" in env_script
+    assert "Module.prototype._compile" in preload
+    assert "zcode.cjs" in preload
+    assert config["mode"] == "zcode-app-preload"
+    assert config["injection_mode"] == "preload"
+    assert config["agent_server_command"] is None
+    assert config["node_options"] == values["NODE_OPTIONS"]
+    assert mod.stale_env_keys(plan) == (
+        "ZCODE_AGENT_SERVER_COMMAND",
+        "ZCODE_AGENT_SERVER_ARGS_JSON",
+    )
+
+
+def test_preload_merges_existing_node_options_and_skips_unrelated_processes(tmp_path):
+    runtime = tmp_path / "zcode.cjs"
+    make_runtime(runtime)
+    paths = mod.build_paths(tmp_path / "managed")
+    plan = mod.InstallPlan(
+        paths=paths,
+        source_system_file=tmp_path / "source.md",
+        zcode_runtime=runtime,
+        node_command=tmp_path / "node",
+        activate=False,
+        injection_mode="preload",
+    )
+
+    merged = mod.merge_node_options("--trace-warnings", mod.node_options_require_flag(plan))
+    again = mod.merge_node_options(merged, mod.node_options_require_flag(plan))
+    stripped = mod.strip_node_options(merged, mod.node_options_require_flag(plan))
+
+    assert merged == f"--trace-warnings --require {paths.preload}"
+    assert again == merged
+    assert stripped == "--trace-warnings"
+    assert "if (shouldAttach())" in mod.render_preload(plan)
+
+
+def test_injection_mode_follows_storage_startup_marker(tmp_path):
+    app = tmp_path / "ZCode.app"
+    asar = app / "Contents" / "Resources" / "app.asar"
+    asar.parent.mkdir(parents=True)
+    asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
+
+    assert mod.app_requires_storage_startup(app) is True
+    assert mod.injection_mode_for_app(app) == "preload"
+    asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\n")
+    assert mod.app_requires_storage_startup(app) is False
+    assert mod.injection_mode_for_app(app) == "wrapper"
 
 
 def test_windows_activation_lines_are_preserved_in_json_report(tmp_path, capsys, monkeypatch):
@@ -763,6 +841,7 @@ def test_macos_install_rolls_back_launchctl_and_files_on_activation_failure(tmp_
         paths.system_file: "old system",
         paths.config_file: "old config",
         paths.wrapper: "old wrapper",
+        paths.preload: "old preload",
         paths.env_script: "old env",
         paths.launch_agent: "old plist",
     }

@@ -14,20 +14,25 @@
 
 ### 源码安装面
 
-- 稳妥安装检出 tag `v0.3.0`，校验 `--version` 为 `0.3.0`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，经 wrapper 进入 ZCode agent-server 的 system message 路径，**不改** App 原包。
+- 稳妥安装检出 tag `v0.3.0`，校验 `--version` 为 `0.3.0`。该版本把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径，**不改** App 原包。ZCode 3.12+ 走用户目录 preload；更早版本仍走 wrapper。
 - 仅源码：没有独立二进制资产、没有 `pip` / npm、没有已发布 Desktop 安装包。
 - 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`。
 
 ### 原理
 
-ZCode 桌面端启动 agent-server 时读取：
+ZCode 3.12 桌面端启动时会先做独立 session storage 准备。官方配套 Agent 带 `supportsStorageStartup`；一旦设置 `ZCODE_AGENT_SERVER_COMMAND`，这条标记会丢失，启动页停在「当前配置的 Agent 不支持独立存储准备」。
+
+因此安装器按本机 App 选择注入方式：
+
+- **ZCode 3.12+（asar 含 `supportsStorageStartup`）**：不覆盖 agent-server command。安装 `~/.zcode-keysmith/bin/zcode-keysmith-preload.cjs`，并把 `--require` 合并进 `NODE_OPTIONS`。preload 只在加载 `zcode.cjs` 时打同一处 `customSystemPrompt` 补丁，官方 runtime 仍负责 `--prepare-storage`。安装时会清掉旧的 `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON`。
+- **更早的 ZCode**：仍读取
 
 ```text
 ZCODE_AGENT_SERVER_COMMAND
 ZCODE_AGENT_SERVER_ARGS_JSON
 ```
 
-macOS 安装器把 `ZCODE_AGENT_SERVER_COMMAND` 指向 `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`。Windows 安装器把 command 指向当前 Python 解释器，并把 wrapper 路径作为第一个参数，避开 Windows 不能可靠直接执行 `.py` 文件的问题。wrapper 读取 ZCode 自带 runtime（macOS 默认 `/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs`；Windows 为安装目录下 `resources/glm/zcode.cjs`），在用户目录缓存一份副本，只替换一处 `customSystemPrompt` 入口，使其读取 `~/.zcode-keysmith/system-role.md`，再用 ZCode 自带 Electron node 启动缓存 runtime。Windows wrapper 会显式把父进程的 stdin/stdout/stderr OS 句柄绑定给 agent-server 子进程，并保留 stderr 与 stdout 的分离，保持长连接 JSON-RPC 通信；仅传递这三个句柄，不泄漏其他句柄。macOS 优先使用 Helper 可执行文件，Windows 使用 `ZCode.exe` 并仅为 agent-server 子进程设置 `ELECTRON_RUN_AS_NODE=1`。
+macOS 把 command 指向 `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`。Windows 把 command 指向当前 Python，并把 wrapper 路径作为第一个参数。wrapper 缓存一份 runtime 副本，只替换 `customSystemPrompt` 入口。Windows wrapper 显式绑定父进程 stdin/stdout/stderr。
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
@@ -102,11 +107,11 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### 卸载残留
 
-macOS 的 `uninstall --yes` 把五个受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、env 脚本、LaunchAgent plist，并用 `launchctl unsetenv` 清空当前会话的 Keysmith 入口。Windows 备份前四个文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
+macOS 的 `uninstall --yes` 把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、LaunchAgent plist，并清掉当前会话的 Keysmith 入口。3.12+ 安装写入的 `NODE_OPTIONS --require` 会从现有 `NODE_OPTIONS` 里拆掉，不整段清空。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
 
 没有 `recover` / `restore` 子命令。macOS 手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境。Windows 正常卸载已经自动恢复安装前的环境；如需手工恢复文件，可运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.ps1` 重新激活 Keysmith。最后退出并重新打开 ZCode，再运行 `verify`。
 
-安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的逐文件原子写入目标里，卸载也不清理它们；macOS 的五个文件或 Windows 的四个文件之间都不是一个整体事务。
+安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper / preload 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的逐文件原子写入目标里，卸载也不清理它们；受管理文件之间不是一个整体事务。
 
 ### 验证
 
@@ -124,20 +129,25 @@ python3 zcode-keysmith.py verify
 
 ### Source-only install
 
-- Check out tag `v0.3.0` and confirm `--version` is `0.3.0`. That version writes `~/.zcode-keysmith/system-role.md` and routes it through the wrapper into ZCode agent-server's system-message path. The app bundle is **not** modified.
+- Check out tag `v0.3.0` and confirm `--version` is `0.3.0`. That version writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. The app bundle is **not** modified. ZCode 3.12+ uses a user-space preload; older builds still use the wrapper.
 - Source only: no standalone binary assets, no pip/npm package, no published Desktop.
 - Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `73458b16bbb5c879e85c13d7beb6c4f99caab858a5b5b5e35ee367027111cfca`.
 
 ### How it works
 
-The ZCode desktop app reads these variables when starting agent-server:
+ZCode 3.12 desktop startup prepares isolated session storage first. The official agent carries `supportsStorageStartup`. Setting `ZCODE_AGENT_SERVER_COMMAND` drops that flag and leaves the app on “the configured Agent does not support isolated storage preparation.”
+
+The installer therefore chooses an injection mode from the local app:
+
+- **ZCode 3.12+ (asar contains `supportsStorageStartup`)**: do not override the agent-server command. Install `~/.zcode-keysmith/bin/zcode-keysmith-preload.cjs` and merge `--require` into `NODE_OPTIONS`. The preload patches only the `customSystemPrompt` anchor when `zcode.cjs` loads, so the official runtime still handles `--prepare-storage`. Install clears leftover `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON`.
+- **Older ZCode**: still reads
 
 ```text
 ZCODE_AGENT_SERVER_COMMAND
 ZCODE_AGENT_SERVER_ARGS_JSON
 ```
 
-On macOS, the installer points `ZCODE_AGENT_SERVER_COMMAND` at `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. On Windows, the command is the current Python interpreter and the wrapper path is the first argument, avoiding unreliable direct `.py` execution. The wrapper reads the bundled ZCode runtime (`/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs` on macOS or `resources/glm/zcode.cjs` under the Windows install), caches a copy, patches only the `customSystemPrompt` entrypoint, and launches it with ZCode's Electron Node. On Windows it explicitly binds the parent's stdin/stdout/stderr OS handles to the agent-server child, keeps stderr separate from stdout, and passes only those three handles so long-lived JSON-RPC stays connected. Windows sets `ELECTRON_RUN_AS_NODE=1` only for the agent-server child process.
+On macOS the command is `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. On Windows the command is the current Python interpreter and the wrapper path is the first argument. The wrapper caches a runtime copy and patches only `customSystemPrompt`. The Windows wrapper binds the parent stdin/stdout/stderr handles.
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
@@ -198,11 +208,11 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### Uninstall leftovers
 
-On macOS, `uninstall --yes` renames five managed files and clears the current Keysmith entrypoint with `launchctl unsetenv`. On Windows, it backs up four managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
+On macOS, `uninstall --yes` renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, LaunchAgent) and clears the current Keysmith entrypoint. A 3.12+ `--require` flag is stripped from `NODE_OPTIONS` instead of deleting the whole variable. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
 
 There is no `recover` / `restore` subcommand. On macOS, manual rollback restores one matching `.bak_*` set and runs the restored `zcode-keysmith-env.sh`. Windows normal uninstall already restores pre-install environment values; a manually restored install can be reactivated with `zcode-keysmith-env.ps1`. Quit and reopen ZCode, start a fresh task, and run `verify` afterward.
 
-Install also creates `~/.zcode-keysmith/cache/` and `~/.zcode-keysmith/logs/`. The wrapper later writes a cached runtime copy and `logs/wrapper-start.jsonl`. Those paths are outside the individually atomic managed-file writes and are not cleaned by uninstall; neither the five macOS files nor the four Windows files form one cross-file transaction.
+Install also creates `~/.zcode-keysmith/cache/` and `~/.zcode-keysmith/logs/`. The wrapper or preload later writes a cached runtime copy and `logs/wrapper-start.jsonl`. Those paths are outside the individually atomic managed-file writes and are not cleaned by uninstall; the managed files do not form one cross-file transaction.
 
 ### Verification
 
