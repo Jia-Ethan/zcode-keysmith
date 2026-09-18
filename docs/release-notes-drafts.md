@@ -1,5 +1,11 @@
 # Release Notes 草稿
 
+## zcode-keysmith v0.3.1
+
+ZCode 3.12 会因为旧的 Agent 劫持停在启动页。这一版不再改官方 Agent command；3.12+ 改为备份并补丁 runtime，卸载能还原。Latest 现在有稳定版压缩包，下载校验后再装即可。
+
+装完请完全退出并重新打开 ZCode，再开一轮新对话。本次不发布桌面安装包。
+
 ## zcode-keysmith v0.3.0
 
 默认提示词整体重写。硬压那种「必须照做」的写法，在 GLM 上会适得其反；改成正常研究者口吻之后，拒绝少了，完整结果多了。

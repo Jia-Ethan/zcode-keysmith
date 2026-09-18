@@ -66,7 +66,7 @@ Keysmith 给本机的 AI 编程工具装指令：先预览，再写入，能验�
 | [Codex](https://github.com/Jia-Ethan/codex-keysmith) | codex-keysmith | 稳定版安装包 |
 | [Claude Code](https://github.com/Jia-Ethan/claude-keysmith) | claude-keysmith | 源码 |
 | [Grok Build](https://github.com/Jia-Ethan/grok-keysmith) | grok-keysmith | 稳定版安装包 |
-| **ZCode** | **zcode-keysmith** | 源码 |
+| **ZCode** | **zcode-keysmith** | 稳定版安装包 |
 
 每个工具一份安装器。选你正在用的即可。
 
@@ -84,13 +84,16 @@ Keysmith 给本机的 AI 编程工具装指令：先预览，再写入，能验�
 
 ## 开始使用
 
-本机需要已经装好 ZCode。目前只有源码安装，没有独立安装包和桌面版。
+本机需要已经装好 ZCode。推荐用稳定版压缩包。ZCode 3.12 请用 0.3.1；`v0.3.0` 会停在启动页。
 
 **macOS：**
 
 ```bash
-git clone https://github.com/Jia-Ethan/zcode-keysmith.git
-cd zcode-keysmith
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
+shasum -a 256 -c SHA256SUMS
+unzip zcode-keysmith-v0.3.1.zip
+cd zcode-keysmith-v0.3.1
 python3 zcode-keysmith.py install --dry-run
 python3 zcode-keysmith.py install --yes
 ```
@@ -102,8 +105,11 @@ python3 zcode-keysmith.py install --yes
 先完全退出 ZCode，再运行：
 
 ```powershell
-git clone https://github.com/Jia-Ethan/zcode-keysmith.git
-cd zcode-keysmith
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
+Get-FileHash .\zcode-keysmith-v0.3.1.zip -Algorithm SHA256
+Expand-Archive .\zcode-keysmith-v0.3.1.zip -DestinationPath .
+cd zcode-keysmith-v0.3.1
 py zcode-keysmith.py install --dry-run
 py zcode-keysmith.py install --yes
 ```

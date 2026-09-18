@@ -28,5 +28,5 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install pytest
-      - run: python -m py_compile zcode-keysmith.py tests/test_zcode_keysmith.py
+      - run: python -m py_compile zcode-keysmith.py scripts/build_release.py tests/test_zcode_keysmith.py tests/test_build_release.py
       - run: python -m pytest -q

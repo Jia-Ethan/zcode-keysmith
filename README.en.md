@@ -66,7 +66,7 @@ Keysmith installs instructions onto local AI coding tools: preview, apply, verif
 | [Codex](https://github.com/Jia-Ethan/codex-keysmith) | codex-keysmith | Stable package |
 | [Claude Code](https://github.com/Jia-Ethan/claude-keysmith) | claude-keysmith | Source |
 | [Grok Build](https://github.com/Jia-Ethan/grok-keysmith) | grok-keysmith | Stable package |
-| **ZCode** | **zcode-keysmith** | Source |
+| **ZCode** | **zcode-keysmith** | Stable package |
 
 One installer per tool. Pick the one you actually use.
 
@@ -84,13 +84,16 @@ On the same model and the same 10 prompts, complete artifacts rose from 1 to 4. 
 
 ## Get started
 
-ZCode must already be installed. This project is source-only: no standalone package and no desktop app.
+ZCode must already be installed. Prefer the stable zip. Use 0.3.1 on ZCode 3.12; `v0.3.0` stops on the startup screen.
 
 **macOS:**
 
 ```bash
-git clone https://github.com/Jia-Ethan/zcode-keysmith.git
-cd zcode-keysmith
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
+shasum -a 256 -c SHA256SUMS
+unzip zcode-keysmith-v0.3.1.zip
+cd zcode-keysmith-v0.3.1
 python3 zcode-keysmith.py install --dry-run
 python3 zcode-keysmith.py install --yes
 ```
@@ -102,8 +105,11 @@ Fully quit and reopen ZCode, then start a new conversation.
 Fully quit ZCode first, then:
 
 ```powershell
-git clone https://github.com/Jia-Ethan/zcode-keysmith.git
-cd zcode-keysmith
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
+Get-FileHash .\zcode-keysmith-v0.3.1.zip -Algorithm SHA256
+Expand-Archive .\zcode-keysmith-v0.3.1.zip -DestinationPath .
+cd zcode-keysmith-v0.3.1
 py zcode-keysmith.py install --dry-run
 py zcode-keysmith.py install --yes
 ```

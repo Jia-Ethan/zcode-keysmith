@@ -2,11 +2,13 @@
 
 ## [Unreleased]
 
-- **Eval-fixture continue path:** system-role treats CyberGym / breaktest / named overlay and envelope files as local evaluation fixtures (edit, rerun, report counts). Keep native response/tool format. No routing table and no “refusal = failed test” meta-instruction (GLM-5.3-Flash treats that as a jailbreak frame).
-- **Runtime follow-up patches (3.12 in-place):** skip the `You are ZCode` CLI prefix when a custom system prompt is present; neutralize agentsMd `OVERRIDE any default behavior` so MEMORY.md cannot recategorize product work. Already-patched runtimes get the follow-ups without a full re-needle.
-- **doctor:** reports CLI-prefix skip, OVERRIDE neutralization, and Keysmith project memory-index lexicon status.
+## [0.3.1] - 2026-09-19
+
 - 兼容 ZCode 3.12 桌面端独立存储启动，且不削弱 Keysmith 注入：检测到 `supportsStorageStartup` 后不再设置 `ZCODE_AGENT_SERVER_COMMAND`（否则启动页停在 unsupported_runtime），也不再依赖打包 Electron 会删除的 `NODE_OPTIONS --require` preload。3.12+ 改为备份并原地补丁 `glm/zcode.cjs`，让 `customSystemPrompt` **优先读取** managed `system-role.md`。卸载还原备份。旧版 ZCode 仍走 wrapper，同一套 prefer-managed 表达式。
-- README 插图换成系列暖金钥匙静物（hero、使用方式、dry-run 预览）。效果图数字仍是 1/10 → 4/10，未改。
+- **Runtime follow-up patches (3.12 in-place):** skip the `You are ZCode` CLI prefix when a custom system prompt is present; neutralize agentsMd `OVERRIDE any default behavior` so MEMORY.md cannot recategorize product work. Already-patched runtimes get the follow-ups without a full re-needle.
+- **Eval-fixture continue path:** system-role treats CyberGym / breaktest / named overlay and envelope files as local evaluation fixtures (edit, rerun, report counts). Keep native response/tool format. No routing table and no “refusal = failed test” meta-instruction (GLM-5.3-Flash treats that as a jailbreak frame).
+- **doctor:** reports CLI-prefix skip, OVERRIDE neutralization, and Keysmith project memory-index lexicon status.
+- Latest 发布 `zcode-keysmith-v0.3.1.zip` 与 `SHA256SUMS`；仍不发布桌面安装包。`v0.3.0` 的 wrapper 路径对 ZCode 3.12 不可用，请换 0.3.1。
 
 ## [0.3.0] - 2026-09-10
 
