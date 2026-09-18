@@ -295,26 +295,30 @@ def app_supports_agent_server_override(zcode_app: Path | None) -> bool:
     return app_asar_contains(zcode_app, b"ZCODE_AGENT_SERVER_COMMAND")
 
 
+def app_asar_candidates(zcode_app: Path) -> tuple[Path, ...]:
+    app = expand_path(zcode_app)
+    return (
+        app / "Contents" / "Resources" / "app.asar",
+        app / "resources" / "app.asar",
+    )
+
+
 def app_asar_contains(zcode_app: Path | None, needle: bytes) -> bool:
     if not zcode_app:
         return False
-    app_asar = (
-        zcode_app / "resources" / "app.asar"
-        if (zcode_app / "resources" / "app.asar").exists() or platform.system() == "Windows"
-        else zcode_app / "Contents" / "Resources" / "app.asar"
-    )
-    if not app_asar.exists() or not app_asar.is_file():
-        return False
-    try:
-        overlap = b""
-        with app_asar.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                data = overlap + chunk
-                if needle in data:
-                    return True
-                overlap = data[-(len(needle) - 1) :]
-    except OSError:
-        return False
+    for app_asar in app_asar_candidates(zcode_app):
+        if not app_asar.exists() or not app_asar.is_file():
+            continue
+        try:
+            overlap = b""
+            with app_asar.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    data = overlap + chunk
+                    if needle in data:
+                        return True
+                    overlap = data[-(len(needle) - 1) :]
+        except OSError:
+            continue
     return False
 
 

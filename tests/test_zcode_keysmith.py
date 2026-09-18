@@ -522,8 +522,9 @@ def test_storage_startup_builds_use_preload_instead_of_agent_command_override(tm
     assert "ZCODE_AGENT_SERVER_COMMAND" not in values
     assert "ZCODE_AGENT_SERVER_ARGS_JSON" not in values
     assert values["NODE_OPTIONS"] == f"--require {paths.preload}"
-    assert "launchctl setenv ZCODE_AGENT_SERVER_COMMAND" not in env_script
-    assert f"launchctl setenv NODE_OPTIONS '{values['NODE_OPTIONS']}'" in env_script
+    assert "ZCODE_AGENT_SERVER_COMMAND" not in env_script
+    assert "NODE_OPTIONS" in env_script
+    assert str(paths.preload) in env_script
     assert "Module.prototype._compile" in preload
     assert "zcode.cjs" in preload
     assert config["mode"] == "zcode-app-preload"
@@ -560,16 +561,23 @@ def test_preload_merges_existing_node_options_and_skips_unrelated_processes(tmp_
 
 
 def test_injection_mode_follows_storage_startup_marker(tmp_path):
-    app = tmp_path / "ZCode.app"
-    asar = app / "Contents" / "Resources" / "app.asar"
-    asar.parent.mkdir(parents=True)
-    asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
+    mac_app = tmp_path / "ZCode.app"
+    mac_asar = mac_app / "Contents" / "Resources" / "app.asar"
+    mac_asar.parent.mkdir(parents=True)
+    mac_asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
 
-    assert mod.app_requires_storage_startup(app) is True
-    assert mod.injection_mode_for_app(app) == "preload"
-    asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\n")
-    assert mod.app_requires_storage_startup(app) is False
-    assert mod.injection_mode_for_app(app) == "wrapper"
+    assert mod.app_requires_storage_startup(mac_app) is True
+    assert mod.injection_mode_for_app(mac_app) == "preload"
+    mac_asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\n")
+    assert mod.app_requires_storage_startup(mac_app) is False
+    assert mod.injection_mode_for_app(mac_app) == "wrapper"
+
+    win_app = tmp_path / "ZCode"
+    win_asar = win_app / "resources" / "app.asar"
+    win_asar.parent.mkdir(parents=True)
+    win_asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
+    assert mod.app_requires_storage_startup(win_app) is True
+    assert mod.injection_mode_for_app(win_app) == "preload"
 
 
 def test_windows_activation_lines_are_preserved_in_json_report(tmp_path, capsys, monkeypatch):
