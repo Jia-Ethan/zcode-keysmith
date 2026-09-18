@@ -51,7 +51,9 @@ def test_release_zip_is_deterministic_and_excludes_gui(tmp_path):
 
 
 def test_docs_carry_the_current_prompt_hash():
-    digest = hashlib.sha256((ROOT / "examples" / "system-role.md").read_bytes()).hexdigest()
+    digest = hashlib.sha256(
+        (ROOT / "examples" / "system-role.md").read_bytes().replace(b"\r\n", b"\n")
+    ).hexdigest()
     reference = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
     agent_install = (ROOT / "docs" / "agent-install.md").read_text(encoding="utf-8")
     assert digest in reference

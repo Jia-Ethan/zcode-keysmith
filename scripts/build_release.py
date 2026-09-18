@@ -35,6 +35,8 @@ INCLUDE_GLOBS = (
 )
 
 SKIP_SUFFIXES = {".pyc", ".DS_Store"}
+TEXT_SUFFIXES = {".md", ".py", ".json", ".yml", ".yaml", ".txt", ".svg", ".html"}
+TEXT_NAMES = {"LICENSE", "VERSION"}
 
 
 class ReleaseError(Exception):
@@ -86,10 +88,19 @@ def file_mode(relative_path: str) -> int:
     return 0o755 if relative_path == "zcode-keysmith.py" else 0o644
 
 
+def file_bytes(root: Path, relative_path: str) -> bytes:
+    data = (root / relative_path).read_bytes()
+    name = Path(relative_path).name
+    suffix = Path(relative_path).suffix.lower()
+    if name in TEXT_NAMES or suffix in TEXT_SUFFIXES:
+        return data.replace(b"\r\n", b"\n")
+    return data
+
+
 def write_zip(path: Path, version: str, root: Path, files: list[str]) -> None:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
         for relative_path in files:
-            data = (root / relative_path).read_bytes()
+            data = file_bytes(root, relative_path)
             info = zipfile.ZipInfo(archive_name(version, relative_path), ZIP_TIMESTAMP)
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
