@@ -578,6 +578,23 @@ def test_runtime_patch_install_rewrites_vendor_runtime_and_keeps_backup(tmp_path
     assert "ZCODE_AGENT_SERVER_COMMAND" not in env_script
     assert "NODE_OPTIONS" not in env_script
 
+    code = mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(managed),
+        "--launch-agent", str(tmp_path / "agent.plist"),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node_command),
+        "--yes",
+        "--no-activate",
+    ])
+    assert code == 0
+    config = json.loads((managed / "config.json").read_text(encoding="utf-8"))
+    backup = Path(config["runtime_original_backup"])
+    assert backup.is_file()
+    assert backup.read_text(encoding="utf-8") == original
+    assert "if(x&&x.trim())return x" in runtime.read_text(encoding="utf-8")
+
 
 def test_injection_mode_follows_storage_startup_marker(tmp_path):
     mac_app = tmp_path / "ZCode.app"

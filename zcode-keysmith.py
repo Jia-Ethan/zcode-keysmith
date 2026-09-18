@@ -441,8 +441,12 @@ def original_runtime_backup_path(plan: InstallPlan, original_sha256: str | None 
     if runtime_text_is_keysmith_patched(text):
         saved = load_saved_config(plan.paths) or {}
         saved_backup = saved.get("runtime_original_backup")
-        if isinstance(saved_backup, str) and saved_backup:
+        if isinstance(saved_backup, str) and saved_backup and Path(saved_backup).is_file():
             return Path(saved_backup)
+        if backups.is_dir():
+            originals = sorted(backups.glob("zcode.cjs.*.original"))
+            if originals:
+                return originals[-1]
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return backups / f"zcode.cjs.{digest[:16]}.original"
 
