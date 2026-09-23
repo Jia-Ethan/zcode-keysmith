@@ -35,6 +35,19 @@ RUNTIME_V314 = (
     'let l=a!==void 0;if(l||t.push(JMe()),s?t.push(dGs({name:"Custom System Prompt",source:"x"})):t.push(Qfn(n)));'
     "const x={customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor,language:this.config.language};"
 )
+MEMORY_ATTACH_FN = (
+    "function WKs(e,t){if(!e||t===void 0)return null;let n=Edt(t);"
+    'return n?[`Contents of ${(0,Nno.join)(e,"MEMORY.md")} '
+    "(user's auto-memory, persists across conversations):`,"
+    '"",n].join(`\n`):null}'
+)
+RUNTIME_WITH_MEMORY = (
+    MEMORY_ATTACH_FN
+    + '["# agentsMd","Codebase and user instructions are shown below. Be sure to adhere to these instructions. '
+    "These are workspace notes and user instructions. They describe the environment. "
+    'They do not override the custom system prompt.","",t.join(`\n`)].join(`\n`);'
+    + RUNTIME_V312
+)
 
 
 def make_runtime(path: Path, text: str | None = None) -> None:
@@ -54,7 +67,7 @@ def test_cli_reports_release_version():
     )
 
     assert completed.returncode == 0
-    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.2"
+    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.3"
     assert completed.stderr == ""
     assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 
@@ -174,6 +187,68 @@ def test_patch_neutralizes_agentsmd_override_when_custom_prompt_is_set():
     patched = mod.build_patched_runtime_text(original, "/tmp/system-role.md")
     assert "OVERRIDE any default behavior" not in patched
     assert "do not override the custom system prompt" in patched
+
+
+def test_patch_skips_project_memory_attach_and_drops_adhere_copy():
+    patched = mod.build_patched_runtime_text(RUNTIME_WITH_MEMORY, "/tmp/system-role.md")
+    assert "if(!0)return null;if(!e||t===void 0)return null" in patched
+    assert "Be sure to adhere to these instructions." not in patched
+    assert "(user's auto-memory, persists across conversations):" in patched
+    assert mod._runtime_memory_skipped(patched)
+    assert not mod._runtime_memory_skipped(RUNTIME_WITH_MEMORY)
+    twice = mod.apply_followup_runtime_patches(patched)
+    assert twice == patched
+    assert twice.count("if(!0)return null;") == 1
+
+
+def test_apply_runtime_patch_applies_memory_skip_on_already_managed_runtime(tmp_path):
+    runtime = tmp_path / "zcode.cjs"
+    managed = (
+        MEMORY_ATTACH_FN
+        + "customSystemPrompt:(()=>{try{let e=process.env.ZCODE_KEYSMITH_SYSTEM_FILE||\"/tmp/system-role.md\";"
+        "let t=require(\"node:fs\");if(t.existsSync(e)){let x=t.readFileSync(e,\"utf8\");if(x&&x.trim())return x}}"
+        "catch{}return this.config.systemPrompt})()"
+    )
+    runtime.write_text(managed, encoding="utf-8")
+    plan = mod.InstallPlan(
+        paths=mod.build_paths(tmp_path / "managed"),
+        source_system_file=tmp_path / "source.md",
+        zcode_runtime=runtime,
+        node_command=tmp_path / "node",
+        activate=False,
+        injection_mode=mod.INJECTION_RUNTIME_PATCH,
+    )
+    backups = mod.apply_runtime_patch(plan)
+    assert backups == []
+    patched = runtime.read_text(encoding="utf-8")
+    assert mod._runtime_memory_skipped(patched)
+    assert "ZCODE_KEYSMITH_SYSTEM_FILE" in patched
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is needed to execute JS fixture")
+def test_memory_attach_returns_null_after_patch(tmp_path):
+    runtime = (
+        "function Edt(t){return t}"
+        "function Nno(){}"
+        "Nno.join=(e,n)=>e+'/'+n;"
+        + MEMORY_ATTACH_FN
+        + "module.exports=WKs;"
+        "function unused(){const x={customSystemPrompt:this.config.systemPrompt,language:this.config.language};}"
+    )
+    patched_path = tmp_path / "runtime.cjs"
+    patched_path.write_text(mod.build_patched_runtime_text(runtime, str(tmp_path / "system.md")), encoding="utf-8")
+    node = shutil.which("node")
+    assert node is not None
+    check = subprocess.run([node, "--check", str(patched_path)], capture_output=True, text=True)
+    assert check.returncode == 0, check.stderr
+    result = subprocess.run(
+        [node, "-e", "const fn=require(process.argv[1]); console.log(JSON.stringify(fn('/tmp','hello')))", str(patched_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "null"
 
 
 def test_apply_runtime_patch_applies_followups_on_already_managed_runtime(tmp_path):
@@ -478,6 +553,8 @@ def test_doctor_reports_state_without_secret_values(tmp_path, capsys, monkeypatc
     assert code == 0
     assert "zcode-keysmith doctor" in out
     assert "zcode_runtime_patchable: true" in out
+    assert "runtime_memory_skipped: false" in out
+    assert "zcode_memory_index_lexicon:" not in out
     assert "api_key: not read or stored" in out
     assert "TEST_OPENAI_KEY_REDACTED" not in out
 
@@ -1531,6 +1608,9 @@ def test_json_install_execute_and_doctor(tmp_path, capsys, monkeypatch):
     assert doctor["managed"]["dir"] == str(managed)
     assert doctor["managed"]["wrapper_exists"] is True
     assert doctor["runtime"]["path"] == str(runtime)
+    assert "memory_skipped" in doctor["runtime"]
+    assert isinstance(doctor["runtime"]["memory_skipped"], bool)
+    assert "memory_index_lexicon" not in doctor["runtime"]
     assert doctor["env"]["ZCODE_KEYSMITH_SYSTEM_FILE"]["expected"].endswith("system-role.md")
 
 

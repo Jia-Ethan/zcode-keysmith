@@ -16,7 +16,7 @@
 
 - 目前可下载的是 GitHub Release `v0.3.1` 的 `zcode-keysmith-v0.3.1.zip` 与同级 `SHA256SUMS`，但不支持 ZCode 3.14；0.3.2 源码修复了 3.14 兼容问题，并在 macOS 上于官方更新后自动重打补丁，尚未发布 Release。安装器把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径。ZCode 3.12+ 不劫持 agent-server command，改为备份并补丁 `glm/zcode.cjs`（`app_bundle_modified: true`，卸载还原）；更早版本仍走 wrapper，不改原包。`v0.3.1` 无法识别 ZCode 3.14 的 runtime 锚点；`v0.3.0` 的 wrapper 路径对 3.12 不可用。
 - 目前公开的稳定入口仍是源码压缩包：没有独立二进制、没有 `pip` / npm。仓库里有第一份 unsigned 桌面候选（GUI `0.1.0-beta.1`，bundled CLI = 本树 `0.3.2`）；`desktop-v0.1.0-beta.1` tag 尚未打，不要把它当成已发布安装包。
-- 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `a62de09eb5d918e649f997c4fb18c3447f6f246bc284250ca04d4c6532c5a0a0`。
+- 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `30e7de01b1a453d38cb1fa38bc8f4bb26eeaf8eccafada1aa178df1a1cf1c9e1`。
 
 ### 原理
 
@@ -144,7 +144,7 @@ python3 scripts/build_release.py --output-dir dist
 
 - The published GitHub Release is `v0.3.1` (`zcode-keysmith-v0.3.1.zip` and `SHA256SUMS`), which does not support ZCode 3.14. Source version 0.3.2 fixes the 3.14 anchors and, on macOS, re-applies the runtime patch after an official app update; it has not been released yet. The installer writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. ZCode 3.12+ does not hijack the agent-server command; it backs up and patches `glm/zcode.cjs` (`app_bundle_modified: true`, restored on uninstall). Older builds still use the wrapper and leave the vendor runtime untouched. `v0.3.1` does not recognize the ZCode 3.14 runtime anchors; the `v0.3.0` wrapper path is incompatible with 3.12.
 - The published entry is still a source zip: no standalone CLI binary, no pip/npm package. The tree now carries a first unsigned desktop candidate (GUI `0.1.0-beta.1`, bundled CLI = this tree's `0.3.2`); the `desktop-v0.1.0-beta.1` tag does not exist yet.
-- Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `a62de09eb5d918e649f997c4fb18c3447f6f246bc284250ca04d4c6532c5a0a0`.
+- Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `30e7de01b1a453d38cb1fa38bc8f4bb26eeaf8eccafada1aa178df1a1cf1c9e1`.
 
 ### How it works
 

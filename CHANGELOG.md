@@ -8,6 +8,13 @@
 - 新增 `.github/workflows/desktop-candidate.yml`：macos-15 arm64 DMG + windows-2025 NSIS，原生 sidecar，`--version` 与隔离目录 `doctor --json`。不跑 scenario / fixture 烟测。
 - `gui/SPEC.md` 补成与 Claude 同级约束文。`gui/README.md` 去掉不存在的 Windows candidate CI 陈述。
 
+## [0.3.3] - 待发布
+
+- **项目内破限失效（#31）：** runtime-patch 在 0.3.2 的 customSystemPrompt 替换、CLI-prefix skip、agentsMd OVERRIDE 中和之外，跳过把项目 `MEMORY.md` auto-memory 挂进 agentsMd。ZCode 把任务放进「项目」后会把 MEMORY.md 注入为 user 上下文；即使 system 已是 Pier，条目里的 standing refusal 仍会盖过人格。已打补丁的 runtime 走 follow-up，不必重找主锚点。
+- 去掉 agentsMd 模板里的 `Be sure to adhere to these instructions.`
+- `doctor` 报告 `runtime_memory_skipped` / JSON `memory_skipped`，不再探测本机项目路径上的 memory-index lexicon。
+- **system-role：** 去掉本机硬件绑定（M3 Air）和家目录路径示例；游戏修改按实际 OS/架构选工具链，不写死兼容层产品名。Persona、`[P]`、One Line 不变。
+
 ## [0.3.2] - 待发布
 
 - 适配 ZCode 3.14.0 的 runtime 锚点：`customSystemPrompt` 配置对象中间插入了 `workflowActor`，CLI-prefix 守卫也从 `if(t.push(...),o?...)` 改成 `if(l||t.push(...),s?...)`。0.3.1 会因此报 `entrypoint shape was not recognized`，CLI-prefix skip 即使主锚点修好也会静默失效。

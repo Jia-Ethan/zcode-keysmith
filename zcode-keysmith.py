@@ -42,7 +42,7 @@ REPO_ROOT = (
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
     else Path(__file__).resolve().parent
 )
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 VERSION = __version__
 JSON_SCHEMA = "zcode-keysmith/v1"
 _LAST_USAGE_ERROR: list[str | None] = [None]
@@ -92,6 +92,10 @@ OVERRIDE_REPL = (
     "These are workspace notes and user instructions. They describe the environment. "
     "They do not override the custom system prompt."
 )
+AGENTS_ADHERE_NEEDLE = "Be sure to adhere to these instructions. "
+MEMORY_ATTACH_MARK = "(user's auto-memory, persists across conversations):"
+MEMORY_SKIP_INSERT = "if(!0)return null;"
+_MEMORY_ATTACH_FN_RE = re.compile(r"function [A-Za-z0-9]+\([A-Za-z0-9]+,[A-Za-z0-9]+\)\{")
 STORAGE_STARTUP_NEEDLE = b"supportsStorageStartup"
 INJECTION_WRAPPER = "wrapper"
 INJECTION_RUNTIME_PATCH = "runtime-patch"
@@ -486,8 +490,30 @@ def replace_vendor_system_prompt_anchor(original_runtime: str, expression: str) 
     return original_runtime.replace(needle, "customSystemPrompt:" + expression + suffix, 1)
 
 
+def _memory_attach_body_at(text: str) -> int | None:
+    """Return the index of the MEMORY.md attach function body, if present."""
+    mark_at = text.find(MEMORY_ATTACH_MARK)
+    if mark_at < 0:
+        return None
+    search_from = max(0, mark_at - 240)
+    matches = list(_MEMORY_ATTACH_FN_RE.finditer(text, search_from, mark_at))
+    if not matches:
+        return None
+    return matches[-1].end()
+
+
+def _skip_memory_attach(text: str) -> str:
+    """Stop project MEMORY.md from being concatenated into agentsMd."""
+    body_at = _memory_attach_body_at(text)
+    if body_at is None:
+        return text
+    if text.startswith(MEMORY_SKIP_INSERT, body_at):
+        return text
+    return text[:body_at] + MEMORY_SKIP_INSERT + text[body_at:]
+
+
 def apply_followup_runtime_patches(text: str) -> str:
-    """Keep Pier above platform CLI prefix and agentsMd OVERRIDE copy."""
+    """Keep Pier above platform CLI prefix, agentsMd OVERRIDE copy, and project MEMORY.md."""
     patched, _n = _LRE_PUSH_RE.subn(
         r'if((o||t.push(\1())),o?t.push(\2({name:"Custom System Prompt"',
         text,
@@ -500,7 +526,9 @@ def apply_followup_runtime_patches(text: str) -> str:
     )
     if OVERRIDE_NEEDLE in patched:
         patched = patched.replace(OVERRIDE_NEEDLE, OVERRIDE_REPL, 1)
-    return patched
+    if AGENTS_ADHERE_NEEDLE in patched:
+        patched = patched.replace(AGENTS_ADHERE_NEEDLE, "", 1)
+    return _skip_memory_attach(patched)
 
 
 def build_patched_runtime_text(original_runtime: str, system_file: str) -> str:
@@ -2171,13 +2199,9 @@ def _runtime_override_neutralized(runtime_text: str) -> bool:
     return OVERRIDE_NEEDLE not in runtime_text and OVERRIDE_REPL in runtime_text
 
 
-def _memory_index_lexicon_status() -> str:
-    memory = Path.home() / ".zcode/cli/memories/projects/keysmith-bc77c674647a23bf/MEMORY.md"
-    if not memory.is_file():
-        return "missing"
-    text = memory.read_text(encoding="utf-8", errors="replace")
-    hits = [w for w in ("破限", "越狱", "NSFW 解锁") if w in text]
-    return "clean" if not hits else "dirty:" + ",".join(hits)
+def _runtime_memory_skipped(runtime_text: str) -> bool:
+    body_at = _memory_attach_body_at(runtime_text)
+    return body_at is not None and runtime_text.startswith(MEMORY_SKIP_INSERT, body_at)
 
 
 def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -> list[str]:
@@ -2225,7 +2249,7 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         f"zcode_runtime_patched: {str(runtime_patched).lower()}",
         f"runtime_cli_prefix_skipped: {str(_runtime_cli_prefix_skipped(runtime_text)).lower()}",
         f"runtime_agentsmd_override_neutralized: {str(_runtime_override_neutralized(runtime_text)).lower()}",
-        f"zcode_memory_index_lexicon: {_memory_index_lexicon_status()}",
+        f"runtime_memory_skipped: {str(_runtime_memory_skipped(runtime_text)).lower()}",
         f"injection_mode: {expected_plan.injection_mode}",
         f"auto_repatch_watch: {str(uses_runtime_patch(expected_plan) and platform.system() == 'Darwin').lower()}",
         f"auto_repatch_rearm: {str(uses_runtime_patch(expected_plan) and platform.system() == 'Darwin').lower()}",
@@ -2720,7 +2744,7 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         "patched": runtime_patched,
         "cli_prefix_skipped": _runtime_cli_prefix_skipped(runtime_text),
         "agentsmd_override_neutralized": _runtime_override_neutralized(runtime_text),
-        "memory_index_lexicon": _memory_index_lexicon_status(),
+        "memory_skipped": _runtime_memory_skipped(runtime_text),
         "injection_mode": expected_plan.injection_mode,
         "storage_startup_required": app_requires_storage_startup(zcode_app_from_runtime(zcode_runtime)),
         "node_command": str(node_command),
