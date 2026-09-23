@@ -1724,6 +1724,119 @@ def test_wait_for_runtime_settle_accepts_stable_file(tmp_path, monkeypatch):
     assert now["t"] >= 3.0
 
 
+def _write_fake_launchctl(bin_dir: Path, *, print_code: int, bootstrap_code: int = 0) -> None:
+    path = bin_dir / "launchctl"
+    path.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$LAUNCHCTL_LOG\"\n"
+        "if [ \"$1\" = print ]; then\n"
+        f"  exit {print_code}\n"
+        "fi\n"
+        "if [ \"$1\" = bootstrap ]; then\n"
+        f"  echo 'bootstrap failed' >&2\n"
+        f"  exit {bootstrap_code}\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+def _run_rearm_script(script: Path, bin_dir: Path) -> tuple[subprocess.CompletedProcess[str], str, str]:
+    log = bin_dir / "launchctl.log"
+    env = os.environ.copy()
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    env["LAUNCHCTL_LOG"] = str(log)
+    completed = subprocess.run(
+        ["/bin/sh", str(script)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+    )
+    recorded = log.read_text(encoding="utf-8") if log.exists() else ""
+    rearm_log = script.parent.parent / "logs" / "rearm.log"
+    # The rendered script logs next to the managed dir, not next to the fake bin.
+    return completed, recorded, rearm_log.read_text(encoding="utf-8") if rearm_log.is_file() else ""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="rearm watchdog is a POSIX launchd script")
+def test_rearm_script_bootstraps_unloaded_watch_agent_and_stays_quiet_when_loaded(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    plan, _runtime, _source, _node = _runtime_patch_plan(tmp_path)
+    plan.paths.launch_agent.parent.mkdir(parents=True, exist_ok=True)
+    plan.paths.launch_agent.write_text("plist", encoding="utf-8")
+    script = plan.paths.rearm_script
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(mod.render_rearm_script(plan), encoding="utf-8")
+    plist = mod.render_rearm_launch_agent(plan)
+    assert "WatchPaths" not in plist
+    assert plist["StartInterval"] == 60
+    assert plist["ProgramArguments"] == [str(script)]
+    assert "launchctl bootout" not in script.read_text(encoding="utf-8")
+
+    missing = tmp_path / "missing-bin"
+    missing.mkdir()
+    _write_fake_launchctl(missing, print_code=113)
+    completed, recorded, rearm_log = _run_rearm_script(script, missing)
+    assert completed.returncode == 0
+    assert "print gui/" in recorded
+    assert recorded.count("bootstrap ") == 1
+    assert "bootstrapped gui/" in rearm_log
+
+    loaded = tmp_path / "loaded-bin"
+    loaded.mkdir()
+    _write_fake_launchctl(loaded, print_code=0)
+    completed, recorded, _quiet_log = _run_rearm_script(script, loaded)
+    assert completed.returncode == 0
+    assert "print gui/" in recorded
+    assert "bootstrap " not in recorded
+
+    failed = tmp_path / "failed-bin"
+    failed.mkdir()
+    _write_fake_launchctl(failed, print_code=113, bootstrap_code=5)
+    completed, recorded, rearm_log = _run_rearm_script(script, failed)
+    assert completed.returncode == 0
+    assert "bootstrap failed gui/" in rearm_log
+
+
+def test_bootout_removes_rearm_before_the_watch_agent(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "launchd_gui_target", lambda label=mod.DEFAULT_LAUNCH_AGENT_LABEL: f"gui/501/{label}")
+    paths = mod.build_paths(tmp_path / "managed", tmp_path / "agent.plist")
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    notes = mod.bootout_launch_agent(paths, runner=fake_run)
+    assert [command[2] for command in calls] == [
+        "gui/501/com.jia.zcode-keysmith.rearm",
+        "gui/501/com.jia.zcode-keysmith.env",
+    ]
+    assert all(note.endswith(": ok") for note in notes)
+
+
+def test_doctor_json_blocks_when_watch_plist_exists_without_rearm(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "launch_agent_loaded", lambda label: "false")
+    plan, runtime, _source, node = _runtime_patch_plan(tmp_path, RUNTIME_V314)
+    plan.paths.managed_dir.mkdir(parents=True)
+    plan.paths.wrapper.parent.mkdir(parents=True, exist_ok=True)
+    plan.paths.system_file.write_text("# managed system\n", encoding="utf-8")
+    plan.paths.config_file.write_text("{}\n", encoding="utf-8")
+    plan.paths.wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+    plan.paths.env_script.write_text("#!/bin/sh\n", encoding="utf-8")
+    plan.paths.launch_agent.parent.mkdir(parents=True, exist_ok=True)
+    plan.paths.launch_agent.write_text("plist", encoding="utf-8")
+    runtime.write_text(mod.build_patched_runtime_text(RUNTIME_V314, str(plan.paths.system_file)), encoding="utf-8")
+    report = mod.doctor_report(plan.paths, runtime, node)
+    assert report["ok"] is False
+    assert any("rearm LaunchAgent missing" in item for item in report["blockers"])
+
+
 def test_runtime_patch_launch_agent_watches_runtime_and_execs_watch(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
     plan, runtime, _source, node_command = _runtime_patch_plan(tmp_path)
@@ -1917,3 +2030,9 @@ def test_runtime_patch_install_copies_installer_for_watch(tmp_path, monkeypatch)
     assert "watch --managed-dir" in env_script
     config = json.loads(plan.paths.config_file.read_text(encoding="utf-8"))
     assert config["auto_repatch_watch"] is True
+    assert config["auto_repatch_rearm"] is True
+    rearm_plist = plistlib.loads(plan.paths.rearm_launch_agent.read_bytes())
+    assert rearm_plist["Label"] == "com.jia.zcode-keysmith.rearm"
+    assert "WatchPaths" not in rearm_plist
+    assert plan.paths.rearm_script.is_file()
+    assert "launchctl bootstrap" in plan.paths.rearm_script.read_text(encoding="utf-8")

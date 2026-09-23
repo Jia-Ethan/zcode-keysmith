@@ -24,7 +24,7 @@ ZCode 3.12 桌面端启动时会先做独立 session storage 准备。官方配�
 
 因此安装器按本机 App 选择注入方式：
 
-- **ZCode 3.12+（asar 含 `supportsStorageStartup`）**：不覆盖 agent-server command，也不设置 `NODE_OPTIONS`。打包 Electron 会删掉父进程 `NODE_OPTIONS`，preload 进不了 agent，破甲会掉。安装器备份 vendor `glm/zcode.cjs`，原地把 `customSystemPrompt` 改成 **优先读** `~/.zcode-keysmith/system-role.md`，官方 runtime 仍负责 `--prepare-storage`。3.14 的配置对象在 `systemPrompt` 和 `language` 之间插入了 `workflowActor`，CLI-prefix 守卫也改了形态；安装器同时识别 3.12 / 3.14 锚点，且仅在无 `workflowActor` 时注入受管提示词，保留原生互斥守卫和 workflow 上下文。安装时清掉旧的 `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`。卸载把 runtime 从备份还原。macOS 的 LaunchAgent 在登录时仍 `setenv`，并监视 `glm/zcode.cjs` / `ZCode.app`：官方 Squirrel/ShipIt 换包、文件稳定后，用同一套已知锚点重打补丁并备份新的官方原文件；若 ZCode 已用未打补丁的进程起来，打完后退出并再打开一次。锚点不认识时不硬打，写 `logs/auto-repatch.json` 并通知升级 Keysmith。Windows 监视不在本版。
+- **ZCode 3.12+（asar 含 `supportsStorageStartup`）**：不覆盖 agent-server command，也不设置 `NODE_OPTIONS`。打包 Electron 会删掉父进程 `NODE_OPTIONS`，preload 进不了 agent，破甲会掉。安装器备份 vendor `glm/zcode.cjs`，原地把 `customSystemPrompt` 改成 **优先读** `~/.zcode-keysmith/system-role.md`，官方 runtime 仍负责 `--prepare-storage`。3.14 的配置对象在 `systemPrompt` 和 `language` 之间插入了 `workflowActor`，CLI-prefix 守卫也改了形态；安装器同时识别 3.12 / 3.14 锚点，且仅在无 `workflowActor` 时注入受管提示词，保留原生互斥守卫和 workflow 上下文。安装时清掉旧的 `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`。卸载把 runtime 从备份还原。macOS 的 LaunchAgent 在登录时仍 `setenv`，并监视 `glm/zcode.cjs` / `ZCode.app`：官方 Squirrel/ShipIt 换包、文件稳定后，用同一套已知锚点重打补丁并备份新的官方原文件；若 ZCode 已用未打补丁的进程起来，打完后退出并再打开一次。锚点不认识时不硬打，写 `logs/auto-repatch.json` 并通知升级 Keysmith。监视用的 LaunchAgent 如果离开当前 gui 会话，launchd 要到下次登录才重新加载 `~/Library/LaunchAgents`。因此同一安装再放一个没有 `WatchPaths` 的 `com.jia.zcode-keysmith.rearm`：每 60 秒 `launchctl print` 监视进程，不在就 `bootstrap` 它的 plist；挂回去时 `RunAtLoad` 立刻再跑一次 `watch`。这个任务不 `bootout` 监视进程，也不监视 App 包。`doctor` 报告 `rearm_loaded`。Windows 监视不在本版。
 - **更早的 ZCode**：仍读取
 
 ```text
@@ -93,7 +93,7 @@ python3 zcode-keysmith.py watch --dry-run
 python3 zcode-keysmith.py watch --yes
 ```
 
-`watch` 等 runtime 文件稳定后再动手；已打过补丁则 `skip`；认识 3.12/3.14 锚点则重打并备份；不认识则 `unknown_hook` 且不改 App。LaunchAgent 在 `WatchPaths` 变化和每 5 分钟 `StartInterval` 时调用同一条命令。
+`watch` 等 runtime 文件稳定后再动手；已打过补丁则 `skip`；认识 3.12/3.14 锚点则重打并备份；不认识则 `unknown_hook` 且不改 App。监视 LaunchAgent 在 `WatchPaths` 变化和每 5 分钟 `StartInterval` 时调用同一条命令。`com.jia.zcode-keysmith.rearm` 没有 `WatchPaths`，每 60 秒确认监视进程仍在本次登录的 launchd 里，不在就重新 `bootstrap`。
 
 如果 ZCode 不在 `/Applications/ZCode.app`，可以指定 App 路径：
 
@@ -117,7 +117,7 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### 卸载残留
 
-macOS 的 `uninstall --yes` 先 `bootout` LaunchAgent，把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、安装器副本、LaunchAgent plist，并清掉当前会话的 Keysmith 入口。若本次安装补丁过 `glm/zcode.cjs`，先从 `runtime_original_backup` 还原。残留的 Keysmith `NODE_OPTIONS --require` 会 unset。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
+macOS 的 `uninstall --yes` 先 `bootout` rearm LaunchAgent，再 `bootout` 监视 LaunchAgent，把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、安装器副本、两个 LaunchAgent plist、rearm 脚本，并清掉当前会话的 Keysmith 入口。若本次安装补丁过 `glm/zcode.cjs`，先从 `runtime_original_backup` 还原。残留的 Keysmith `NODE_OPTIONS --require` 会 unset。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
 
 没有 `recover` / `restore` 子命令。macOS 手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境。Windows 正常卸载已经自动恢复安装前的环境；如需手工恢复文件，可运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.ps1` 重新激活 Keysmith。最后退出并重新打开 ZCode，再运行 `verify`。
 
@@ -152,7 +152,7 @@ ZCode 3.12 desktop startup prepares isolated session storage first. The official
 
 The installer therefore chooses an injection mode from the local app:
 
-- **ZCode 3.12+ (asar contains `supportsStorageStartup`)**: do not override the agent-server command, and do not set `NODE_OPTIONS`. Packaged Electron deletes parent `NODE_OPTIONS`, so a preload never reaches the agent and Keysmith does not inject. The installer backs up vendor `glm/zcode.cjs` and patches `customSystemPrompt` so it **prefers** `~/.zcode-keysmith/system-role.md`. The official runtime still handles `--prepare-storage`. 3.14 inserts `workflowActor` between `systemPrompt` and `language` and changes the CLI-prefix guard; the installer matches both anchors but injects only when `workflowActor` is absent, preserving the native mutex and workflow context. Install clears leftover `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`. Uninstall restores the runtime from the backup. On macOS the LaunchAgent still `setenv`s at login and also watches `glm/zcode.cjs` / `ZCode.app`. After Squirrel/ShipIt swaps the bundle and the files settle, it re-applies the same known-anchor patch and backs up the new official original. If ZCode is already running unpatched, it quits and reopens the app. Unknown anchors are left untouched; `logs/auto-repatch.json` records the skip and a notification asks you to upgrade Keysmith. Windows watching is out of scope for this version.
+- **ZCode 3.12+ (asar contains `supportsStorageStartup`)**: do not override the agent-server command, and do not set `NODE_OPTIONS`. Packaged Electron deletes parent `NODE_OPTIONS`, so a preload never reaches the agent and Keysmith does not inject. The installer backs up vendor `glm/zcode.cjs` and patches `customSystemPrompt` so it **prefers** `~/.zcode-keysmith/system-role.md`. The official runtime still handles `--prepare-storage`. 3.14 inserts `workflowActor` between `systemPrompt` and `language` and changes the CLI-prefix guard; the installer matches both anchors but injects only when `workflowActor` is absent, preserving the native mutex and workflow context. Install clears leftover `ZCODE_AGENT_SERVER_COMMAND` / `ZCODE_AGENT_SERVER_ARGS_JSON` / Keysmith `NODE_OPTIONS`. Uninstall restores the runtime from the backup. On macOS the LaunchAgent still `setenv`s at login and also watches `glm/zcode.cjs` / `ZCode.app`. After Squirrel/ShipIt swaps the bundle and the files settle, it re-applies the same known-anchor patch and backs up the new official original. If ZCode is already running unpatched, it quits and reopens the app. Unknown anchors are left untouched; `logs/auto-repatch.json` records the skip and a notification asks you to upgrade Keysmith. If the watch LaunchAgent leaves the current GUI session, launchd does not reload `~/Library/LaunchAgents` until the next login. The same install adds `com.jia.zcode-keysmith.rearm` with no `WatchPaths`: every 60 seconds it runs `launchctl print` on the watcher and `bootstrap`s its plist when the job is gone. `RunAtLoad` on that watcher then runs `watch` immediately. The rearm job never `bootout`s the watcher and does not watch the app bundle. `doctor` reports `rearm_loaded`. Windows watching is out of scope for this version.
 - **Older ZCode**: still reads
 
 ```text
@@ -210,7 +210,7 @@ python3 zcode-keysmith.py watch --dry-run
 python3 zcode-keysmith.py watch --yes
 ```
 
-`watch` waits for the runtime file to settle, skips an already-patched runtime, re-patches known 3.12/3.14 anchors (and backs up the new original), and leaves unknown hooks untouched. The LaunchAgent runs the same command on `WatchPaths` changes and every 5 minutes via `StartInterval`.
+`watch` waits for the runtime file to settle, skips an already-patched runtime, re-patches known 3.12/3.14 anchors (and backs up the new original), and leaves unknown hooks untouched. The watch LaunchAgent runs the same command on `WatchPaths` changes and every 5 minutes via `StartInterval`. `com.jia.zcode-keysmith.rearm` has no `WatchPaths`; every 60 seconds it checks that the watcher is still loaded in this login session and bootstraps it again when it is not.
 
 Custom app path:
 
@@ -230,7 +230,7 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 ### Uninstall leftovers
 
-On macOS, `uninstall --yes` boots the LaunchAgent out, restores a patched `glm/zcode.cjs` from `runtime_original_backup` when `app_bundle_modified` is true, then renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, installer copy, LaunchAgent) and clears the current Keysmith entrypoint, including leftover Keysmith `NODE_OPTIONS`. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
+On macOS, `uninstall --yes` boots the rearm LaunchAgent out first and then the watch LaunchAgent, restores a patched `glm/zcode.cjs` from `runtime_original_backup` when `app_bundle_modified` is true, then renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, installer copy, both LaunchAgent plists, and the rearm script) and clears the current Keysmith entrypoint, including leftover Keysmith `NODE_OPTIONS`. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
 
 There is no `recover` / `restore` subcommand. On macOS, manual rollback restores one matching `.bak_*` set and runs the restored `zcode-keysmith-env.sh`. Windows normal uninstall already restores pre-install environment values; a manually restored install can be reactivated with `zcode-keysmith-env.ps1`. Quit and reopen ZCode, start a fresh task, and run `verify` afterward.
 

@@ -13,6 +13,7 @@
 - 适配 ZCode 3.14.0 的 runtime 锚点：`customSystemPrompt` 配置对象中间插入了 `workflowActor`，CLI-prefix 守卫也从 `if(t.push(...),o?...)` 改成 `if(l||t.push(...),s?...)`。0.3.1 会因此报 `entrypoint shape was not recognized`，CLI-prefix skip 即使主锚点修好也会静默失效。
 - 安装器同时识别 3.12 与 3.14 锚点，保留 3.12 形态；3.14 仅在没有 `workflowActor` 时注入受管提示词，保留原生互斥检查和 workflow 子会话上下文。
 - **跟随官方自动更新（macOS，#33）：** runtime-patch 安装把 LaunchAgent 从「登录时只 setenv」改成监视 `glm/zcode.cjs` / `ZCode.app`。ShipIt 换包并等文件稳定后，用与 `install` 相同的已知锚点重打补丁、备份新的官方原文件；若 ZCode 已用未打补丁的进程拉起来，打完后退出并再打开一次。锚点不认识时不硬打，写 `logs/auto-repatch.json` 并通知「Keysmith 需要升级」。`doctor` 报告 `last_auto_repatch`：`success` / `skip` / `unknown_hook`。不猜未来锚点，不从 GitHub 自更新 Keysmith。Windows 监视仍不在本版。
+- **监视进程掉出当前登录会话后会自己挂回去（macOS）：** `com.jia.zcode-keysmith.env` 一旦离开 gui domain，plist 还在、后台项仍是允许，也要到下次登录才会被 launchd 重新加载。这中间 ShipIt 换包，补丁就一直缺着。runtime-patch 安装再加一个没有 `WatchPaths` 的 `com.jia.zcode-keysmith.rearm`，每 60 秒用 `launchctl print` 看监视进程还在不在，不在就 `bootstrap` 原来的 plist。重新挂上时 `RunAtLoad` 会立刻跑一次 `watch`。它不 `bootout` 监视进程，也不监视 App 包。`doctor` 增加 `rearm_loaded`；监视 plist 已在而 rearm plist 不在时，`doctor --json` 报缺 rearm。卸载先 bootout rearm，再 bootout 监视进程。
 
 ## [0.3.1] - 2026-09-19
 

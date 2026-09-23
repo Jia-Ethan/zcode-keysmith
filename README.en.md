@@ -84,7 +84,7 @@ On the same model and the same 10 prompts, complete artifacts rose from 1 to 4. 
 
 ## Get started
 
-ZCode must already be installed. The commands below download the currently published 0.3.1 zip, which does not support ZCode 3.14. The 3.14 fix and post-update auto-repatch are in the 0.3.2 source; wait for its Release and use that version's zip and checksum file. `v0.3.0` stops on the startup screen. On macOS, 0.3.2's LaunchAgent re-applies the same runtime patch after an official auto-update; if the anchors moved, it skips and tells you to upgrade Keysmith.
+ZCode must already be installed. The commands below download the currently published 0.3.1 zip, which does not support ZCode 3.14. The 3.14 fix and post-update auto-repatch are in the 0.3.2 source; wait for its Release and use that version's zip and checksum file. `v0.3.0` stops on the startup screen. On macOS, 0.3.2's LaunchAgent re-applies the same runtime patch after an official auto-update; if the anchors moved, it skips and tells you to upgrade Keysmith. If that watcher leaves the current GUI session, a second LaunchAgent that does not watch the app bundle bootstraps it again without waiting for the next login.
 
 Source install is the published entry. The tree now targets a first unsigned desktop candidate (GUI `0.1.0-beta.1`, bundled CLI = 0.3.2); the `desktop-v0.1.0-beta.1` tag does not exist yet, so do not treat it as a shipped installer.
 

@@ -56,6 +56,9 @@ DEFAULT_ENV_SCRIPT_NAME = "zcode-keysmith-env.sh"
 DEFAULT_WINDOWS_ENV_SCRIPT_NAME = "zcode-keysmith-env.ps1"
 DEFAULT_LAUNCH_AGENT_LABEL = "com.jia.zcode-keysmith.env"
 DEFAULT_LAUNCH_AGENT_NAME = f"{DEFAULT_LAUNCH_AGENT_LABEL}.plist"
+DEFAULT_REARM_LAUNCH_AGENT_LABEL = "com.jia.zcode-keysmith.rearm"
+DEFAULT_REARM_LAUNCH_AGENT_NAME = f"{DEFAULT_REARM_LAUNCH_AGENT_LABEL}.plist"
+DEFAULT_REARM_SCRIPT_NAME = "zcode-keysmith-rearm.sh"
 DEFAULT_ZCODE_APP = Path("/Applications/ZCode.app")
 DEFAULT_ZCODE_RUNTIME = DEFAULT_ZCODE_APP / "Contents" / "Resources" / "glm" / "zcode.cjs"
 DEFAULT_ZCODE_HELPER_NODE_COMMAND = DEFAULT_ZCODE_APP / "Contents" / "Frameworks" / "ZCode Helper.app" / "Contents" / "MacOS" / "ZCode Helper"
@@ -113,6 +116,7 @@ AUTO_REPATCH_STATUS_NAME = "auto-repatch.json"
 AUTO_REPATCH_LOG_NAME = "auto-repatch.log"
 AUTO_REPATCH_SCHEMA = "zcode-keysmith/auto-repatch/v1"
 WATCH_START_INTERVAL_SECONDS = 300
+REARM_START_INTERVAL_SECONDS = 60
 WATCH_THROTTLE_INTERVAL_SECONDS = 10
 WATCH_SETTLE_TIMEOUT_SECONDS = 90.0
 WATCH_SETTLE_STABLE_SECONDS = 3.0
@@ -133,6 +137,8 @@ class InstallPaths:
     preload: Path
     env_script: Path
     launch_agent: Path | None
+    rearm_script: Path
+    rearm_launch_agent: Path | None
     log_dir: Path
     cache_dir: Path
     wrapper_log: Path
@@ -160,6 +166,7 @@ def build_paths(managed_dir: Path, launch_agent: Path | None = None) -> InstallP
     managed_dir = expand_path(managed_dir)
     bin_dir = managed_dir / "bin"
     is_windows = platform.system() == "Windows"
+    launch_agent_path = None if is_windows else (expand_path(launch_agent) if launch_agent else default_launch_agent_path())
     return InstallPaths(
         managed_dir=managed_dir,
         system_file=managed_dir / DEFAULT_SYSTEM_FILE_NAME,
@@ -167,7 +174,9 @@ def build_paths(managed_dir: Path, launch_agent: Path | None = None) -> InstallP
         wrapper=bin_dir / DEFAULT_WRAPPER_NAME,
         preload=bin_dir / DEFAULT_PRELOAD_NAME,
         env_script=bin_dir / (DEFAULT_WINDOWS_ENV_SCRIPT_NAME if is_windows else DEFAULT_ENV_SCRIPT_NAME),
-        launch_agent=None if is_windows else (expand_path(launch_agent) if launch_agent else default_launch_agent_path()),
+        launch_agent=launch_agent_path,
+        rearm_script=bin_dir / DEFAULT_REARM_SCRIPT_NAME,
+        rearm_launch_agent=None if launch_agent_path is None else launch_agent_path.with_name(DEFAULT_REARM_LAUNCH_AGENT_NAME),
         log_dir=managed_dir / "logs",
         cache_dir=managed_dir / "cache",
         wrapper_log=managed_dir / "logs" / "wrapper-start.jsonl",
@@ -741,6 +750,7 @@ def install_managed_files(
                 0o755,
             )
         )
+        payloads.append((plan.paths.rearm_script, render_rearm_script(plan), 0o755))
     staged: list[tuple[Path, Path]] = []
     replaced: list[tuple[Path, Path | None]] = []
     backups: list[Path] = []
@@ -772,6 +782,20 @@ def install_managed_files(
                 delete=False,
             ) as handle:
                 plistlib.dump(render_launch_agent(plan), handle, sort_keys=False)
+                tmp = Path(handle.name)
+            staged.append((target, tmp))
+
+        if uses_runtime_patch(plan) and plan.paths.rearm_launch_agent is not None:
+            target = plan.paths.rearm_launch_agent
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                "wb",
+                dir=str(target.parent),
+                prefix=f".{target.name}.",
+                suffix=".install.tmp",
+                delete=False,
+            ) as handle:
+                plistlib.dump(render_rearm_launch_agent(plan), handle, sort_keys=False)
                 tmp = Path(handle.name)
             staged.append((target, tmp))
 
@@ -950,6 +974,62 @@ def render_launch_agent(plan: InstallPlan) -> dict[str, object]:
     return payload
 
 
+def render_rearm_script(plan: InstallPlan) -> str:
+    """Shell watchdog. It only calls launchctl, so a missing Python cannot silence it."""
+    if plan.paths.launch_agent is None:
+        raise KeysmithError("rearm LaunchAgent is only available on macOS")
+    log_path = plan.paths.log_dir / "rearm.log"
+    return "\n".join(
+        [
+            "#!/bin/sh",
+            "# Re-load the auto-repatch agent if this GUI session dropped it.",
+            "# Do not watch ZCode.app. A bundle swap must not be able to unload this job.",
+            "set -u",
+            f"PLIST={sh_single_quote(str(plan.paths.launch_agent))}",
+            f"LOG={sh_single_quote(str(log_path))}",
+            'DOMAIN="gui/$(id -u)"',
+            f'TARGET="$DOMAIN/{DEFAULT_LAUNCH_AGENT_LABEL}"',
+            "note() {",
+            '  mkdir -p "$(dirname "$LOG")" 2>/dev/null || true',
+            "  printf '%s %s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$*\" >> \"$LOG\" 2>/dev/null || true",
+            "}",
+            'if [ ! -f "$PLIST" ]; then',
+            "  exit 0",
+            "fi",
+            'if launchctl print "$TARGET" >/dev/null 2>&1; then',
+            "  exit 0",
+            "fi",
+            "status=0",
+            'err=$(launchctl bootstrap "$DOMAIN" "$PLIST" 2>&1) || status=$?',
+            'if [ "$status" -eq 0 ]; then',
+            '  note "bootstrapped $TARGET"',
+            "  exit 0",
+            "fi",
+            'note "bootstrap failed $TARGET: $err"',
+            "exit 0",
+            "",
+        ]
+    )
+
+
+def render_rearm_launch_agent(plan: InstallPlan) -> dict[str, object]:
+    if plan.paths.rearm_launch_agent is None or plan.paths.rearm_script is None:
+        raise KeysmithError("rearm LaunchAgent is only available on macOS")
+    # No WatchPaths. launchd does not reload ~/Library/LaunchAgents until the next
+    # login, so this job only bootstraps the watcher again after the GUI session
+    # drops it. It must not watch the app bundle.
+    return {
+        "Label": DEFAULT_REARM_LAUNCH_AGENT_LABEL,
+        "ProgramArguments": [str(plan.paths.rearm_script)],
+        "RunAtLoad": True,
+        "StartInterval": REARM_START_INTERVAL_SECONDS,
+        "ThrottleInterval": WATCH_THROTTLE_INTERVAL_SECONDS,
+        "ExitTimeOut": 30,
+        "StandardOutPath": str(plan.paths.log_dir / "rearm.out.log"),
+        "StandardErrorPath": str(plan.paths.log_dir / "rearm.err.log"),
+    }
+
+
 def render_config(
     plan: InstallPlan,
     previous_user_environment: dict[str, dict[str, object] | None] | None = None,
@@ -963,6 +1043,8 @@ def render_config(
         "preload": str(plan.paths.preload),
         "env_script": str(plan.paths.env_script),
         "launch_agent": str(plan.paths.launch_agent) if plan.paths.launch_agent else None,
+        "rearm_script": str(plan.paths.rearm_script) if uses_runtime_patch(plan) and plan.paths.rearm_launch_agent else None,
+        "rearm_launch_agent": str(plan.paths.rearm_launch_agent) if uses_runtime_patch(plan) and plan.paths.rearm_launch_agent else None,
         "zcode_runtime": str(plan.zcode_runtime),
         "node_command": str(plan.node_command),
         "cache_dir": str(plan.paths.cache_dir),
@@ -975,6 +1057,7 @@ def render_config(
         "app_bundle_modified": uses_runtime_patch(plan),
         "python_command": str(Path(sys.executable).resolve()),
         "auto_repatch_watch": uses_runtime_patch(plan) and platform.system() == "Darwin",
+        "auto_repatch_rearm": uses_runtime_patch(plan) and platform.system() == "Darwin",
     }
     if platform.system() == "Windows":
         payload["platform"] = "Windows"
@@ -1461,6 +1544,7 @@ def install_lines(plan: InstallPlan, dry_run: bool, backups: list[Path], activat
             f"preload: {plan.paths.preload}",
             f"env_script: {plan.paths.env_script}",
             f"launch_agent: {plan.paths.launch_agent or 'not used on Windows'}",
+            f"rearm_launch_agent: {plan.paths.rearm_launch_agent or 'not used on Windows'}",
             f"zcode_runtime: {plan.zcode_runtime}",
             f"node_command: {plan.node_command}",
             f"cache_dir: {plan.paths.cache_dir}",
@@ -1472,6 +1556,7 @@ def install_lines(plan: InstallPlan, dry_run: bool, backups: list[Path], activat
             f"activate_current_session: {str(plan.activate).lower()}",
             f"app_bundle_modified: {str(uses_runtime_patch(plan)).lower()}",
             f"auto_repatch_watch: {str(uses_runtime_patch(plan) and platform.system() == 'Darwin').lower()}",
+            f"auto_repatch_rearm: {str(uses_runtime_patch(plan) and platform.system() == 'Darwin').lower()}",
             "api_key: not read or stored",
             f"zcode_running: {str(is_zcode_running()).lower()}",
             "activation_note: reopen ZCode and start a fresh task",
@@ -1488,6 +1573,7 @@ def install_lines(plan: InstallPlan, dry_run: bool, backups: list[Path], activat
             lines.append("effect: official agent-server stays in place; glm/zcode.cjs customSystemPrompt reads the managed system-role first")
             if platform.system() == "Darwin":
                 lines.append("effect: macOS LaunchAgent watches glm/zcode.cjs and re-applies the same patch after an official update")
+                lines.append("effect: a second LaunchAgent with no WatchPaths bootstraps that watcher again if this GUI session drops it")
         else:
             lines.append("effect: new ZCode agent-server processes will use the managed wrapper")
     return lines
@@ -1779,7 +1865,7 @@ def open_zcode_app(app: Path | None, runner=subprocess.run) -> bool:
     return completed.returncode == 0
 
 
-def launchd_gui_target() -> str | None:
+def launchd_gui_target(label: str = DEFAULT_LAUNCH_AGENT_LABEL) -> str | None:
     getuid = getattr(os, "getuid", None)
     if not callable(getuid):
         return None
@@ -1787,31 +1873,30 @@ def launchd_gui_target() -> str | None:
         uid = getuid()
     except OSError:
         return None
-    return f"gui/{uid}/{DEFAULT_LAUNCH_AGENT_LABEL}"
+    return f"gui/{uid}/{label}"
 
 
-def bootstrap_launch_agent(plan: InstallPlan, runner=subprocess.run) -> list[str]:
-    if platform.system() != "Darwin" or plan.paths.launch_agent is None or not plan.paths.launch_agent.is_file():
+def _launchctl(runner, args: list[str]) -> subprocess.CompletedProcess[str]:
+    return runner(
+        ["launchctl", *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def bootstrap_labeled_agent(label: str, plist: Path | None, runner=subprocess.run) -> list[str]:
+    if platform.system() != "Darwin" or plist is None or not plist.is_file():
         return []
-    target = launchd_gui_target()
+    target = launchd_gui_target(label)
     if target is None:
         return ["launchctl bootstrap skipped: no launchd user domain"]
     domain = target.rsplit("/", 1)[0]
     try:
-        runner(
-            ["launchctl", "bootout", target],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        completed = runner(
-            ["launchctl", "bootstrap", domain, str(plan.paths.launch_agent)],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
+        # Drop a stale registration, then load the plist that is on disk now.
+        _launchctl(runner, ["bootout", target])
+        completed = _launchctl(runner, ["bootstrap", domain, str(plist)])
     except OSError as exc:
         return [f"launchctl bootstrap skipped: {exc}"]
     if completed.returncode == 0:
@@ -1820,26 +1905,51 @@ def bootstrap_launch_agent(plan: InstallPlan, runner=subprocess.run) -> list[str
     return [f"launchctl bootstrap {target}: {detail}"]
 
 
-def bootout_launch_agent(paths: InstallPaths, runner=subprocess.run) -> list[str]:
-    if platform.system() != "Darwin" or paths.launch_agent is None:
+def bootout_labeled_agent(label: str, runner=subprocess.run) -> list[str]:
+    if platform.system() != "Darwin":
         return []
-    target = launchd_gui_target()
+    target = launchd_gui_target(label)
     if target is None:
         return ["launchctl bootout skipped: no launchd user domain"]
     try:
-        completed = runner(
-            ["launchctl", "bootout", target],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
+        completed = _launchctl(runner, ["bootout", target])
     except OSError as exc:
         return [f"launchctl bootout skipped: {exc}"]
     detail = (completed.stderr or completed.stdout).strip()
     if completed.returncode == 0 or "No such process" in detail or "not found" in detail.lower():
         return [f"launchctl bootout {target}: ok"]
     return [f"launchctl bootout {target}: {detail or f'exit {completed.returncode}'}"]
+
+
+def bootstrap_launch_agent(plan: InstallPlan, runner=subprocess.run) -> list[str]:
+    notes = bootstrap_labeled_agent(DEFAULT_LAUNCH_AGENT_LABEL, plan.paths.launch_agent, runner)
+    if uses_runtime_patch(plan):
+        notes.extend(bootstrap_labeled_agent(DEFAULT_REARM_LAUNCH_AGENT_LABEL, plan.paths.rearm_launch_agent, runner))
+    return notes
+
+
+def bootout_launch_agent(paths: InstallPaths, runner=subprocess.run) -> list[str]:
+    # Rearm first. If it stayed loaded it would bootstrap the watch agent again
+    # while uninstall is trying to remove that agent.
+    notes: list[str] = []
+    if paths.rearm_launch_agent is not None:
+        notes.extend(bootout_labeled_agent(DEFAULT_REARM_LAUNCH_AGENT_LABEL, runner))
+    if paths.launch_agent is not None:
+        notes.extend(bootout_labeled_agent(DEFAULT_LAUNCH_AGENT_LABEL, runner))
+    return notes
+
+
+def launch_agent_loaded(label: str, runner=subprocess.run) -> str:
+    if platform.system() != "Darwin":
+        return "unchecked"
+    target = launchd_gui_target(label)
+    if target is None:
+        return "unchecked"
+    try:
+        completed = _launchctl(runner, ["print", target])
+    except OSError:
+        return "unchecked"
+    return "true" if completed.returncode == 0 else "false"
 
 
 def classify_runtime_for_repatch(runtime_text: str) -> str:
@@ -2106,6 +2216,9 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         f"env_script_exists: {str(paths.env_script.exists()).lower()}",
         f"launch_agent: {paths.launch_agent or 'not used on Windows'}",
         f"launch_agent_exists: {str(bool(paths.launch_agent and paths.launch_agent.exists())).lower()}",
+        f"rearm_launch_agent: {paths.rearm_launch_agent or 'not used on Windows'}",
+        f"rearm_launch_agent_exists: {str(bool(paths.rearm_launch_agent and paths.rearm_launch_agent.exists())).lower()}",
+        f"rearm_loaded: {launch_agent_loaded(DEFAULT_REARM_LAUNCH_AGENT_LABEL) if paths.rearm_launch_agent else 'unchecked'}",
         f"zcode_runtime: {zcode_runtime}",
         f"zcode_runtime_exists: {str(zcode_runtime.exists()).lower()}",
         f"zcode_runtime_patchable: {str(runtime_patchable).lower()}",
@@ -2115,6 +2228,7 @@ def doctor_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path) -
         f"zcode_memory_index_lexicon: {_memory_index_lexicon_status()}",
         f"injection_mode: {expected_plan.injection_mode}",
         f"auto_repatch_watch: {str(uses_runtime_patch(expected_plan) and platform.system() == 'Darwin').lower()}",
+        f"auto_repatch_rearm: {str(uses_runtime_patch(expected_plan) and platform.system() == 'Darwin').lower()}",
         f"last_auto_repatch: {auto['last_auto_repatch']}",
         f"last_auto_repatch_status: {auto['last_auto_repatch_status']}",
         f"last_auto_repatch_reason: {auto['last_auto_repatch_reason']}",
@@ -2231,11 +2345,18 @@ def verify_lines(paths: InstallPaths, zcode_runtime: Path, node_command: Path, s
     return lines
 
 
+def rearm_managed_targets(paths: InstallPaths) -> list[Path]:
+    if paths.rearm_launch_agent is None:
+        return []
+    return [paths.rearm_script, paths.rearm_launch_agent]
+
+
 def uninstall_lines(paths: InstallPaths, dry_run: bool, removed: list[Path], activation: list[str]) -> list[str]:
     lines = ["zcode-keysmith uninstall preview" if dry_run else "zcode-keysmith uninstall complete"]
     targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script, installer_copy_path(paths)]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
+    targets.extend(rearm_managed_targets(paths))
     for path in targets:
         lines.append(f"target: {path}")
     lines.append(f"write: {str(not dry_run).lower()}")
@@ -2389,6 +2510,7 @@ def uninstall_locked(paths: InstallPaths, activate: bool) -> list[str]:
     targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script, installer_copy_path(paths)]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
+    targets.extend(rearm_managed_targets(paths))
     config = load_saved_config(paths)
     bootout_notes = bootout_launch_agent(paths) if activate else []
     restore_notes = restore_runtime_from_config(config)
@@ -2508,6 +2630,10 @@ def install_report(plan: InstallPlan, dry_run: bool, backups: list[Path], activa
         actions.append(_json_action(action_name, installer_copy_path(plan.paths), "installer_copy"))
     if plan.paths.launch_agent is not None:
         actions.append(_json_action(action_name, plan.paths.launch_agent, "launch_agent"))
+    if uses_runtime_patch(plan):
+        for path in rearm_managed_targets(plan.paths):
+            kind = "rearm_launch_agent" if path == plan.paths.rearm_launch_agent else "rearm_script"
+            actions.append(_json_action(action_name, path, kind))
     for backup in backups:
         actions.append(_json_action("backup", backup, "backup"))
     return _json_report(
@@ -2581,6 +2707,9 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
         "env_script_exists": paths.env_script.exists(),
         "launch_agent": str(paths.launch_agent) if paths.launch_agent else None,
         "launch_agent_exists": bool(paths.launch_agent and paths.launch_agent.exists()),
+        "rearm_launch_agent": str(paths.rearm_launch_agent) if paths.rearm_launch_agent else None,
+        "rearm_launch_agent_exists": bool(paths.rearm_launch_agent and paths.rearm_launch_agent.exists()),
+        "rearm_loaded": launch_agent_loaded(DEFAULT_REARM_LAUNCH_AGENT_LABEL) if paths.rearm_launch_agent else "unchecked",
         "cache_dir": str(paths.cache_dir),
         "wrapper_log": str(paths.wrapper_log),
     }
@@ -2608,6 +2737,14 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
             blockers.append(f"{label} missing: {paths.managed_dir}")
     if paths.launch_agent is not None and not paths.launch_agent.is_file():
         blockers.append(f"LaunchAgent missing: {paths.launch_agent}")
+    elif (
+        uses_runtime_patch(expected_plan)
+        and paths.launch_agent is not None
+        and paths.launch_agent.is_file()
+        and paths.rearm_launch_agent is not None
+        and not paths.rearm_launch_agent.is_file()
+    ):
+        blockers.append(f"rearm LaunchAgent missing: {paths.rearm_launch_agent}")
     if not zcode_runtime.is_file():
         blockers.append(f"ZCode runtime missing: {zcode_runtime}")
     elif not runtime_patchable:
@@ -2627,6 +2764,7 @@ def doctor_report(paths: InstallPaths, zcode_runtime: Path, node_command: Path) 
             "backups": list_backup_files(paths),
             "app_bundle_modified": uses_runtime_patch(expected_plan) and runtime_patched,
             "auto_repatch_watch": uses_runtime_patch(expected_plan) and platform.system() == "Darwin",
+            "auto_repatch_rearm": uses_runtime_patch(expected_plan) and platform.system() == "Darwin",
             **summarize_auto_repatch(paths),
         },
     )
@@ -2721,6 +2859,7 @@ def uninstall_report(paths: InstallPaths, dry_run: bool, removed: list[Path], ac
     targets = [paths.system_file, paths.config_file, paths.wrapper, paths.preload, paths.env_script, installer_copy_path(paths)]
     if paths.launch_agent is not None:
         targets.append(paths.launch_agent)
+    targets.extend(rearm_managed_targets(paths))
     actions = [_json_action(action_name, path, "target") for path in targets]
     for path in removed:
         actions.append(_json_action("removed", path, "removed"))
