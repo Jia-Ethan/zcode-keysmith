@@ -14,6 +14,9 @@
 - 去掉 agentsMd 模板里的 `Be sure to adhere to these instructions.`
 - `doctor` 报告 `runtime_memory_skipped` / JSON `memory_skipped`，不再探测本机项目路径上的 memory-index lexicon。
 - **system-role：** 去掉本机硬件绑定（M3 Air）和家目录路径示例；游戏修改按实际 OS/架构选工具链，不写死兼容层产品名。Persona、`[P]`、One Line 不变。
+- **verify 在 runtime-patch 下不再因 leftover wrapper smoke 失败（#32）：** 该模式默认跳过 `wrapper --help`；live App 文件已被原地打补丁时，wrapper 从 `runtime_original_backup` 读原锚点，或直接放行已含 `ZCODE_KEYSMITH_SYSTEM_FILE` 的 runtime。`verify --json` 增加 `competing_context`。`--smoke` 仍可强制跑 wrapper。
+- **`recover`：** 预览或修复 ShipIt 换包后的未打补丁 runtime、缺失的 follow-up patch，以及掉出 GUI 会话的 LaunchAgent（plist 仍在则 bootstrap）。锚点不认识时失败关闭，提示 `install --yes`。
+- **series-eval：** `docs/series-eval.md` 与 `breaktest/series-bank.txt` 对齐四套 Keysmith 共用 cell ID；ZCode 仍用 Pier 脸，不移植 Grok routing table。
 
 ## [0.3.2] - 待发布
 

@@ -119,7 +119,11 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 macOS 的 `uninstall --yes` 先 `bootout` rearm LaunchAgent，再 `bootout` 监视 LaunchAgent，把受管理文件改名为 `.bak_YYYYMMDD_HHMMSS`：`system-role.md`、`config.json`、wrapper、preload、env 脚本、安装器副本、两个 LaunchAgent plist、rearm 脚本，并清掉当前会话的 Keysmith 入口。若本次安装补丁过 `glm/zcode.cjs`，先从 `runtime_original_backup` 还原。残留的 Keysmith `NODE_OPTIONS --require` 会 unset。Windows 备份对应受管理文件，并按 `config.json` 保存的安装前状态恢复当前用户环境；若某个值在安装后被其他工具或用户改过，则保持该值不动。两端都不删除 `~/.zcode-keysmith/` 目录本身，也不删除 `cache/`、`logs/` 或历史备份。
 
-没有 `recover` / `restore` 子命令。macOS 手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境。Windows 正常卸载已经自动恢复安装前的环境；如需手工恢复文件，可运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.ps1` 重新激活 Keysmith。最后退出并重新打开 ZCode，再运行 `verify`。
+`recover` 预览或修复当前 runtime-patch 安装：ShipIt 换包后的未打补丁 `glm/zcode.cjs`、缺失的 CLI-prefix / OVERRIDE / MEMORY skip follow-up，以及 plist 仍在但已离开本次 GUI 会话的 LaunchAgent。默认只预览；`--yes` 才写入。锚点不认识或 plist 缺失时失败关闭，需要 `install --yes`。卸载回滚仍按下面的 `.bak_*` 路径手工恢复。
+
+macOS 手工回滚时，按卸载输出中的 `removed:` 路径恢复同一批 `.bak_*` 文件，然后运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.sh`（或退出登录后重新登录）以重新加载 launchd 环境。Windows 正常卸载已经自动恢复安装前的环境；如需手工恢复文件，可运行恢复后的 `~/.zcode-keysmith/bin/zcode-keysmith-env.ps1` 重新激活 Keysmith。最后退出并重新打开 ZCode，再运行 `verify`。
+
+runtime-patch 模式下 `verify` 默认跳过 wrapper `--help` smoke（wrapper 不参与启动）。判据是 `zcode_runtime_patched` 与 `competing_context`。需要检查 leftover wrapper 时加 `--smoke`。
 
 安装还会创建 `~/.zcode-keysmith/cache/` 与 `~/.zcode-keysmith/logs/`。wrapper / preload 运行时另写缓存 runtime 副本和 `logs/wrapper-start.jsonl`。这些路径不在 install 的逐文件原子写入目标里，卸载也不清理它们；受管理文件之间不是一个整体事务。
 
@@ -131,6 +135,7 @@ python3 -m pytest tests -q
 python3 zcode-keysmith.py install --dry-run
 python3 zcode-keysmith.py doctor
 python3 zcode-keysmith.py verify
+python3 zcode-keysmith.py recover --dry-run
 python3 scripts/build_release.py --output-dir dist
 ```
 
@@ -232,7 +237,11 @@ py zcode-keysmith.py install --zcode-app "D:\software\zcode" --dry-run
 
 On macOS, `uninstall --yes` boots the rearm LaunchAgent out first and then the watch LaunchAgent, restores a patched `glm/zcode.cjs` from `runtime_original_backup` when `app_bundle_modified` is true, then renames the managed files (`system-role.md`, `config.json`, wrapper, preload, env script, installer copy, both LaunchAgent plists, and the rearm script) and clears the current Keysmith entrypoint, including leftover Keysmith `NODE_OPTIONS`. On Windows, it backs up the managed files and restores pre-install user environment values only where the current value is still owned by Keysmith; later manual or third-party changes are preserved. Neither platform deletes `~/.zcode-keysmith/`, `cache/`, `logs/`, or historical backups.
 
-There is no `recover` / `restore` subcommand. On macOS, manual rollback restores one matching `.bak_*` set and runs the restored `zcode-keysmith-env.sh`. Windows normal uninstall already restores pre-install environment values; a manually restored install can be reactivated with `zcode-keysmith-env.ps1`. Quit and reopen ZCode, start a fresh task, and run `verify` afterward.
+`recover` previews or repairs a runtime-patch install: an unpatched `glm/zcode.cjs` after ShipIt, missing CLI-prefix / OVERRIDE / MEMORY follow-ups, and LaunchAgents whose plists are still on disk but have left this GUI session. Preview is the default; `--yes` writes. Unrecognized anchors or missing plists fail closed and need `install --yes`. Uninstall rollback still uses the `.bak_*` paths below.
+
+On macOS, manual rollback restores one matching `.bak_*` set and runs the restored `zcode-keysmith-env.sh`. Windows normal uninstall already restores pre-install environment values; a manually restored install can be reactivated with `zcode-keysmith-env.ps1`. Quit and reopen ZCode, start a fresh task, and run `verify` afterward.
+
+In runtime-patch mode `verify` skips wrapper `--help` smoke by default (the wrapper is unused). Success is `zcode_runtime_patched` plus `competing_context`. Pass `--smoke` to exercise a leftover wrapper.
 
 Install also creates `~/.zcode-keysmith/cache/` and `~/.zcode-keysmith/logs/`. The wrapper or preload later writes a cached runtime copy and `logs/wrapper-start.jsonl`. Those paths are outside the individually atomic managed-file writes and are not cleaned by uninstall; the managed files do not form one cross-file transaction.
 
@@ -244,6 +253,7 @@ python3 -m pytest tests -q
 python3 zcode-keysmith.py install --dry-run
 python3 zcode-keysmith.py doctor
 python3 zcode-keysmith.py verify
+python3 zcode-keysmith.py recover --dry-run
 python3 scripts/build_release.py --output-dir dist
 ```
 
