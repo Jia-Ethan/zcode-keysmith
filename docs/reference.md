@@ -14,8 +14,8 @@
 
 ### 安装面
 
-- 目前可下载的是 GitHub Release `v0.3.1` 的 `zcode-keysmith-v0.3.1.zip` 与同级 `SHA256SUMS`，但不支持 ZCode 3.14；0.3.2 源码修复了 3.14 兼容问题，并在 macOS 上于官方更新后自动重打补丁，尚未发布 Release。安装器把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径。ZCode 3.12+ 不劫持 agent-server command，改为备份并补丁 `glm/zcode.cjs`（`app_bundle_modified: true`，卸载还原）；更早版本仍走 wrapper，不改原包。`v0.3.1` 无法识别 ZCode 3.14 的 runtime 锚点；`v0.3.0` 的 wrapper 路径对 3.12 不可用。
-- 目前公开的稳定入口仍是源码压缩包：没有独立二进制、没有 `pip` / npm。仓库里有第一份 unsigned 桌面候选（GUI `0.1.0-beta.1`，bundled CLI = 本树 `0.3.2`）；`desktop-v0.1.0-beta.1` tag 尚未打，不要把它当成已发布安装包。
+- 目前可下载的是 GitHub Release `v0.3.3` 的 `zcode-keysmith-v0.3.3.zip` 与同级 `SHA256SUMS`，支持 ZCode 3.12 与 3.14。安装器把指令写到 `~/.zcode-keysmith/system-role.md`，进入 ZCode agent-server 的 system message 路径。ZCode 3.12+ 不劫持 agent-server command，改为备份并补丁 `glm/zcode.cjs`（`app_bundle_modified: true`，卸载还原）；更早版本仍走 wrapper，不改原包。`v0.3.1` 无法识别 ZCode 3.14 的 runtime 锚点；`v0.3.0` 的 wrapper 路径对 3.12 不可用。
+- 目前公开的稳定入口仍是源码压缩包：没有独立二进制、没有 `pip` / npm。仓库里有第一份 unsigned 桌面候选（GUI `0.1.0-beta.1`）；`desktop-v0.1.0-beta.1` tag 尚未打，不要把它当成已发布安装包。
 - 内置提示词来源为 [`examples/system-role.md`](../examples/system-role.md)，SHA-256 `30e7de01b1a453d38cb1fa38bc8f4bb26eeaf8eccafada1aa178df1a1cf1c9e1`。
 
 ### 原理
@@ -36,7 +36,7 @@ macOS 把 command 指向 `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`。Window
 
 ZCode runtime 会把 `customSystemPrompt` 放进 `injectionTarget: "system"` 的上下文段，因此这份文件走的是 system message 路径，不是项目说明文件。若源文件来自 GLM ChatML 导出，外层 `<|im_start|>system:` / `<|im_end|>` 会在写入前被清理。
 
-当前源码版本 `0.3.2`，尚无对应 CLI Release；发布后预期 zip 安装面是 `zcode-keysmith-v0.3.2.zip` + `SHA256SUMS`。目前公开的仍是 `v0.3.1`。没有独立 CLI 二进制、没有 `pip` / npm。桌面客户端源码在 `gui/`，本轮目标是 unsigned `desktop-v0.1.0-beta.1`（sidecar = CLI 0.3.2），tag 尚未存在。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
+当前源码版本 `0.3.3`，公开 zip 安装面是 `zcode-keysmith-v0.3.3.zip` + `SHA256SUMS`。没有独立 CLI 二进制、没有 `pip` / npm。桌面客户端源码在 `gui/`，本轮目标是 unsigned `desktop-v0.1.0-beta.1`，tag 尚未存在。目标平台是 macOS + 本机 `ZCode.app`，或 Windows 10/11 + 本机 `ZCode.exe`。macOS 通过 `launchctl` 激活；Windows 写入 `HKCU\Environment` 并广播环境变更，不需要管理员权限。Linux 没有文档化支持。
 
 `install --dry-run` 仍会读取源提示词并检查本机 runtime 是否可打补丁。本机找不到可识别的 ZCode 安装时，预览会失败。可用 `--zcode-app` 或 `ZCODE_APP_PATH` 指定路径。
 
@@ -147,8 +147,8 @@ python3 scripts/build_release.py --output-dir dist
 
 ### Install surface
 
-- The published GitHub Release is `v0.3.1` (`zcode-keysmith-v0.3.1.zip` and `SHA256SUMS`), which does not support ZCode 3.14. Source version 0.3.2 fixes the 3.14 anchors and, on macOS, re-applies the runtime patch after an official app update; it has not been released yet. The installer writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. ZCode 3.12+ does not hijack the agent-server command; it backs up and patches `glm/zcode.cjs` (`app_bundle_modified: true`, restored on uninstall). Older builds still use the wrapper and leave the vendor runtime untouched. `v0.3.1` does not recognize the ZCode 3.14 runtime anchors; the `v0.3.0` wrapper path is incompatible with 3.12.
-- The published entry is still a source zip: no standalone CLI binary, no pip/npm package. The tree now carries a first unsigned desktop candidate (GUI `0.1.0-beta.1`, bundled CLI = this tree's `0.3.2`); the `desktop-v0.1.0-beta.1` tag does not exist yet.
+- The published GitHub Release is `v0.3.3` (`zcode-keysmith-v0.3.3.zip` and `SHA256SUMS`), which supports ZCode 3.12 and 3.14. The installer writes `~/.zcode-keysmith/system-role.md` into ZCode agent-server's system-message path. ZCode 3.12+ does not hijack the agent-server command; it backs up and patches `glm/zcode.cjs` (`app_bundle_modified: true`, restored on uninstall). Older builds still use the wrapper and leave the vendor runtime untouched. `v0.3.1` does not recognize the ZCode 3.14 runtime anchors; the `v0.3.0` wrapper path is incompatible with 3.12.
+- The published entry is still a source zip: no standalone CLI binary, no pip/npm package. The tree also carries a first unsigned desktop candidate (GUI `0.1.0-beta.1`); the `desktop-v0.1.0-beta.1` tag does not exist yet.
 - Bundled prompt: [`examples/system-role.md`](../examples/system-role.md), SHA-256 `30e7de01b1a453d38cb1fa38bc8f4bb26eeaf8eccafada1aa178df1a1cf1c9e1`.
 
 ### How it works
@@ -169,7 +169,7 @@ On macOS the command is `~/.zcode-keysmith/bin/zcode-agent-wrapper.py`. On Windo
 
 The runtime places `customSystemPrompt` into a context segment with `injectionTarget: "system"`, so the file enters the system-message path rather than a project instruction file. GLM ChatML wrappers (`<|im_start|>system:` / `<|im_end|>`) are stripped before write.
 
-The current source version is `0.3.2`, with no corresponding CLI Release yet. A future CLI release would ship `zcode-keysmith-v0.3.2.zip` plus `SHA256SUMS`; `v0.3.1` remains the published zip. There is no standalone CLI binary or pip/npm package. Desktop source lives in `gui/`; this round targets unsigned `desktop-v0.1.0-beta.1` with sidecar CLI 0.3.2, but that tag is not cut yet. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
+The current source version is `0.3.3`. The published zip is `zcode-keysmith-v0.3.3.zip` plus `SHA256SUMS`. There is no standalone CLI binary or pip/npm package. Desktop source lives in `gui/`; this round targets unsigned `desktop-v0.1.0-beta.1`, but that tag is not cut yet. Documented platforms are macOS with a local `ZCode.app`, and Windows 10/11 with a local `ZCode.exe`. Windows activation uses current-user environment values under `HKCU\Environment` and requires no administrator access. Linux is not documented.
 
 `install --dry-run` still reads the source prompt and checks that the local runtime is patchable. Preview fails if no recognizable ZCode installation is present. Pass `--zcode-app` or `ZCODE_APP_PATH` for a non-default location.
 

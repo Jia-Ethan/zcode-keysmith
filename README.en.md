@@ -84,18 +84,18 @@ On the same model and the same 10 prompts, complete artifacts rose from 1 to 4. 
 
 ## Get started
 
-ZCode must already be installed. The commands below download the currently published 0.3.1 zip, which does not support ZCode 3.14. The 3.14 fix and post-update auto-repatch are in the 0.3.2 source; wait for its Release and use that version's zip and checksum file. `v0.3.0` stops on the startup screen. On macOS, 0.3.2's LaunchAgent re-applies the same runtime patch after an official auto-update; if the anchors moved, it skips and tells you to upgrade Keysmith. If that watcher leaves the current GUI session, a second LaunchAgent that does not watch the app bundle bootstraps it again without waiting for the next login.
+ZCode must already be installed. The commands below download the currently published 0.3.3 zip, which supports ZCode 3.12 and 3.14. On macOS a LaunchAgent re-applies the same runtime patch after an official auto-update; if the anchors moved, it skips and tells you to upgrade Keysmith. If that watcher leaves the current GUI session, a second LaunchAgent that does not watch the app bundle bootstraps it again. Project MEMORY.md no longer overrides Pier; `verify` in runtime-patch mode no longer fails on leftover wrapper smoke. `v0.3.0` stops on the startup screen. `v0.3.1` cannot patch 3.14.
 
-Source install is the published entry. The tree now targets a first unsigned desktop candidate (GUI `0.1.0-beta.1`, bundled CLI = 0.3.2); the `desktop-v0.1.0-beta.1` tag does not exist yet, so do not treat it as a shipped installer.
+Source zip is the published entry. The tree also has a first unsigned desktop candidate (GUI `0.1.0-beta.1`); do not treat it as a shipped installer.
 
 **macOS:**
 
 ```bash
-curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
-curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.3/zcode-keysmith-v0.3.3.zip
+curl -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.3/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
-unzip zcode-keysmith-v0.3.1.zip
-cd zcode-keysmith-v0.3.1
+unzip zcode-keysmith-v0.3.3.zip
+cd zcode-keysmith-v0.3.3
 python3 zcode-keysmith.py install --dry-run
 python3 zcode-keysmith.py install --yes
 ```
@@ -107,11 +107,11 @@ Fully quit and reopen ZCode, then start a new conversation.
 Fully quit ZCode first, then:
 
 ```powershell
-curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/zcode-keysmith-v0.3.1.zip
-curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.1/SHA256SUMS
-Get-FileHash .\zcode-keysmith-v0.3.1.zip -Algorithm SHA256
-Expand-Archive .\zcode-keysmith-v0.3.1.zip -DestinationPath .
-cd zcode-keysmith-v0.3.1
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.3/zcode-keysmith-v0.3.3.zip
+curl.exe -LO https://github.com/Jia-Ethan/zcode-keysmith/releases/download/v0.3.3/SHA256SUMS
+Get-FileHash .\zcode-keysmith-v0.3.3.zip -Algorithm SHA256
+Expand-Archive .\zcode-keysmith-v0.3.3.zip -DestinationPath .
+cd zcode-keysmith-v0.3.3
 py zcode-keysmith.py install --dry-run
 py zcode-keysmith.py install --yes
 ```

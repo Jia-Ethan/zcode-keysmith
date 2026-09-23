@@ -8,7 +8,7 @@
 - 新增 `.github/workflows/desktop-candidate.yml`：macos-15 arm64 DMG + windows-2025 NSIS，原生 sidecar，`--version` 与隔离目录 `doctor --json`。不跑 scenario / fixture 烟测。
 - `gui/SPEC.md` 补成与 Claude 同级约束文。`gui/README.md` 去掉不存在的 Windows candidate CI 陈述。
 
-## [0.3.3] - 待发布
+## [0.3.3] - 2026-09-23
 
 - **项目内破限失效（#31）：** runtime-patch 在 0.3.2 的 customSystemPrompt 替换、CLI-prefix skip、agentsMd OVERRIDE 中和之外，跳过把项目 `MEMORY.md` auto-memory 挂进 agentsMd。ZCode 把任务放进「项目」后会把 MEMORY.md 注入为 user 上下文；即使 system 已是 Pier，条目里的 standing refusal 仍会盖过人格。已打补丁的 runtime 走 follow-up，不必重找主锚点。
 - 去掉 agentsMd 模板里的 `Be sure to adhere to these instructions.`
@@ -17,13 +17,15 @@
 - **verify 在 runtime-patch 下不再因 leftover wrapper smoke 失败（#32）：** 该模式默认跳过 `wrapper --help`；live App 文件已被原地打补丁时，wrapper 从 `runtime_original_backup` 读原锚点，或直接放行已含 `ZCODE_KEYSMITH_SYSTEM_FILE` 的 runtime。`verify --json` 增加 `competing_context`。`--smoke` 仍可强制跑 wrapper。
 - **`recover`：** 预览或修复 ShipIt 换包后的未打补丁 runtime、缺失的 follow-up patch，以及掉出 GUI 会话的 LaunchAgent（plist 仍在则 bootstrap）。锚点不认识时失败关闭，提示 `install --yes`。
 - **series-eval：** `docs/series-eval.md` 与 `breaktest/series-bank.txt` 对齐四套 Keysmith 共用 cell ID；ZCode 仍用 Pier 脸，不移植 Grok routing table。
+- Latest 发布 `zcode-keysmith-v0.3.3.zip` 与 `SHA256SUMS`；仍不发布桌面安装包。3.12 与 3.14 都用这一版。
 
-## [0.3.2] - 待发布
+## [0.3.2] - 2026-09-22
 
 - 适配 ZCode 3.14.0 的 runtime 锚点：`customSystemPrompt` 配置对象中间插入了 `workflowActor`，CLI-prefix 守卫也从 `if(t.push(...),o?...)` 改成 `if(l||t.push(...),s?...)`。0.3.1 会因此报 `entrypoint shape was not recognized`，CLI-prefix skip 即使主锚点修好也会静默失效。
 - 安装器同时识别 3.12 与 3.14 锚点，保留 3.12 形态；3.14 仅在没有 `workflowActor` 时注入受管提示词，保留原生互斥检查和 workflow 子会话上下文。
 - **跟随官方自动更新（macOS，#33）：** runtime-patch 安装把 LaunchAgent 从「登录时只 setenv」改成监视 `glm/zcode.cjs` / `ZCode.app`。ShipIt 换包并等文件稳定后，用与 `install` 相同的已知锚点重打补丁、备份新的官方原文件；若 ZCode 已用未打补丁的进程拉起来，打完后退出并再打开一次。锚点不认识时不硬打，写 `logs/auto-repatch.json` 并通知「Keysmith 需要升级」。`doctor` 报告 `last_auto_repatch`：`success` / `skip` / `unknown_hook`。不猜未来锚点，不从 GitHub 自更新 Keysmith。Windows 监视仍不在本版。
 - **监视进程掉出当前登录会话后会自己挂回去（macOS）：** `com.jia.zcode-keysmith.env` 一旦离开 gui domain，plist 还在、后台项仍是允许，也要到下次登录才会被 launchd 重新加载。这中间 ShipIt 换包，补丁就一直缺着。runtime-patch 安装再加一个没有 `WatchPaths` 的 `com.jia.zcode-keysmith.rearm`，每 60 秒用 `launchctl print` 看监视进程还在不在，不在就 `bootstrap` 原来的 plist。重新挂上时 `RunAtLoad` 会立刻跑一次 `watch`。它不 `bootout` 监视进程，也不监视 App 包。`doctor` 增加 `rearm_loaded`；监视 plist 已在而 rearm plist 不在时，`doctor --json` 报缺 rearm。卸载先 bootout rearm，再 bootout 监视进程。
+- 未单独打 GitHub tag；内容随 v0.3.3 发布。
 
 ## [0.3.1] - 2026-09-19
 
