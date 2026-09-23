@@ -2177,15 +2177,17 @@ def test_wrapper_passthrough_when_runtime_already_patched(tmp_path, monkeypatch)
         "--no-activate",
     ]) == 0
     assert "ZCODE_KEYSMITH_SYSTEM_FILE" in runtime.read_text(encoding="utf-8")
-    completed = subprocess.run(
-        [sys.executable, str(plan.paths.wrapper), "--help"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+    # Load the generated wrapper in-process. A live --help would exec NODE_COMMAND;
+    # the fixture node is a shebang stub, which Windows cannot CreateProcess.
+    spec = importlib.util.spec_from_file_location(
+        "zcode_wrapper_passthrough", plan.paths.wrapper
     )
-    assert completed.returncode == 0
-    assert "patch anchor not found" not in (completed.stderr or "")
+    assert spec is not None and spec.loader is not None
+    wrapper_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wrapper_mod)
+    resolved = wrapper_mod.patched_runtime_path()
+    assert resolved.exists()
+    assert "ZCODE_KEYSMITH_SYSTEM_FILE" in resolved.read_text(encoding="utf-8")
 
 
 def test_recover_reapplies_runtime_patch(tmp_path, capsys, monkeypatch):
