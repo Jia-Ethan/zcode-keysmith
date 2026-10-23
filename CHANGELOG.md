@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **Windows ZCode 3.16.x (#43):** keep the official agent-server entrypoint for `supportsStorageStartup` builds, patch `resources/glm/zcode.cjs` with a reversible original backup, and add an install/uninstall regression covering the Windows path. Release as CLI `0.3.4` so the desktop sidecar can carry the fix.
+
 - **Desktop 0.1.0-beta.1（候选，尚未打 tag）：** 第一份 unsigned 桌面包，sidecar 绑 master 上的 CLI **0.3.2**，不是 Latest tag `v0.3.1` zip。GUI 版本保持 `0.1.0-beta.1`（源码从未公开发包）。
 - GUI 超时：leader 退出后管道仍被子孙持有时，对启动时保存的 pid 进程组 SIGKILL；保留 500 ms `finish_read_task`。回归 `timeout_covers_pipes_after_leader_exit`。
 - Dashboard 失败对齐 `StatusFailure`：timeout / exit / stdout / stderr，不只一句 `error.message`。

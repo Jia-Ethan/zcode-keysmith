@@ -67,7 +67,7 @@ def test_cli_reports_release_version():
     )
 
     assert completed.returncode == 0
-    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.3"
+    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.4"
     assert completed.stderr == ""
     assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 
@@ -934,6 +934,56 @@ def test_injection_mode_follows_storage_startup_marker(tmp_path):
     win_asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
     assert mod.app_requires_storage_startup(win_app) is True
     assert mod.injection_mode_for_app(win_app) == "runtime-patch"
+
+
+def test_windows_storage_startup_install_patches_vendor_runtime_and_restores_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(mod, "get_windows_user_env_entry", lambda key: None)
+    monkeypatch.setattr(mod, "set_windows_user_env_entry", lambda key, entry: None)
+    monkeypatch.setattr(mod, "windows_string_env_entry", lambda value: {"value": value, "registry_type": 1})
+    monkeypatch.setattr(mod, "broadcast_windows_environment_change", lambda: None)
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+
+    app = tmp_path / "ZCode"
+    asar = app / "resources" / "app.asar"
+    asar.parent.mkdir(parents=True)
+    asar.write_bytes(b"ZCODE_AGENT_SERVER_COMMAND\nsupportsStorageStartup\n")
+    runtime = app / "resources" / "glm" / "zcode.cjs"
+    runtime.parent.mkdir(parents=True)
+    make_runtime(runtime, RUNTIME_V314)
+    original = runtime.read_text(encoding="utf-8")
+    node_command = app / "ZCode.exe"
+    node_command.write_bytes(b"MZ")
+    source = tmp_path / "source.md"
+    source.write_text("# Windows managed system\n", encoding="utf-8")
+    managed = tmp_path / "managed"
+
+    code = mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(managed),
+        "--zcode-app", str(app),
+        "--yes",
+    ])
+
+    assert code == 0
+    config = json.loads((managed / "config.json").read_text(encoding="utf-8"))
+    assert config["injection_mode"] == "runtime-patch"
+    assert config["app_bundle_modified"] is True
+    assert "ZCODE_AGENT_SERVER_COMMAND" not in config["environment"]
+    backup = Path(config["runtime_original_backup"])
+    assert backup.read_text(encoding="utf-8") == original
+    assert "ZCODE_KEYSMITH_SYSTEM_FILE" in runtime.read_text(encoding="utf-8")
+
+    code = mod.main([
+        "uninstall",
+        "--managed-dir", str(managed),
+        "--zcode-app", str(app),
+        "--yes",
+    ])
+
+    assert code == 0
+    assert runtime.read_text(encoding="utf-8") == original
 
 
 def test_windows_activation_lines_are_preserved_in_json_report(tmp_path, capsys, monkeypatch):
