@@ -42,7 +42,7 @@ REPO_ROOT = (
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
     else Path(__file__).resolve().parent
 )
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 VERSION = __version__
 JSON_SCHEMA = "zcode-keysmith/v1"
 _LAST_USAGE_ERROR: list[str | None] = [None]
