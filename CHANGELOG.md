@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **ZCode 3.17–4.0 runtime anchors & follow-up patches:** stop requiring `,language:` after `workflowActor` in the primary `customSystemPrompt` anchor (ZCode 3.19 / 4.0 replaced it with `outputStyle:`), handle semicolon-delimited CLI-prefix guards introduced in 3.17+ (`;c||t.push(...)`), and match the refactored 3.18–4.0 `buildProjectMemoryIndexFile` `MEMORY.md` attach function (including underscore-prefixed minified names like `_ic`) in patching, `verify`, and `recover`. Release as CLI `0.3.5`.
+
 - **Windows ZCode 3.16.x (#43):** keep the official agent-server entrypoint for `supportsStorageStartup` builds, patch `resources/glm/zcode.cjs` with a reversible original backup, and add an install/uninstall regression covering the Windows path. Release as CLI `0.3.4` so the desktop sidecar can carry the fix.
 
 - **Desktop 0.1.0-beta.1（候选，尚未打 tag）：** 第一份 unsigned 桌面包，sidecar 绑 master 上的 CLI **0.3.2**，不是 Latest tag `v0.3.1` zip。GUI 版本保持 `0.1.0-beta.1`（源码从未公开发包）。
