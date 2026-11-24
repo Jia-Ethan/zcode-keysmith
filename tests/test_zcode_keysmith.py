@@ -41,6 +41,19 @@ MEMORY_ATTACH_FN = (
     "(user's auto-memory, persists across conversations):`,"
     '"",n].join(`\n`):null}'
 )
+MEMORY_ATTACH_FN_V318 = (
+    'function _ic(e,t){if(!e||t===void 0)return null;let n=wIe(t);'
+    'return n?Ixt((0,eZo.join)(e,"MEMORY.md"),F2n,n):null}'
+)
+RUNTIME_V319_V400 = (
+    '_4a="Codebase and user instructions are shown below. Be sure to adhere to these instructions. '
+    'IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written.";'
+    + MEMORY_ATTACH_FN_V318
+    + 'if(a!==void 0&&i)throw new Error("ContextBuilder: workflowActor and customSystemPrompt are mutually exclusive");'
+    'let c=a!==void 0,u=this.config.midConversationSystem!==!1;c||t.push(u7e()),'
+    'i?t.push(Ric({name:"Custom System Prompt",source:"custom_system_prompt",content:o})):a!==void 0?t.push(C3n(a,u)):t.push(I3n(n,u));'
+    "const x={customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor,outputStyle:this.config.outputStyle};"
+)
 RUNTIME_WITH_MEMORY = (
     MEMORY_ATTACH_FN
     + '["# agentsMd","Codebase and user instructions are shown below. Be sure to adhere to these instructions. '
@@ -67,7 +80,7 @@ def test_cli_reports_release_version():
     )
 
     assert completed.returncode == 0
-    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.4"
+    assert completed.stdout.strip() == "zcode-keysmith.py 0.3.5"
     assert completed.stderr == ""
     assert mod.VERSION == (MODULE_PATH.parent / "VERSION").read_text(encoding="ascii").strip()
 
@@ -451,7 +464,7 @@ def test_rendered_wrapper_is_valid_python_and_uses_configured_cache_dir(tmp_path
     assert "proc.wait()" in wrapper_text
     # Windows binds the parent's OS handles explicitly.
     assert "env=env" in wrapper_text
-    assert "workflowActor:this.config.workflowActor,language:" in wrapper_text
+    assert "customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor," in wrapper_text
     assert "PATCH_NEEDLES" in wrapper_text
     assert "this.config.workflowActor===void 0?" in wrapper_text
 
@@ -2287,3 +2300,175 @@ def test_recover_reapplies_runtime_patch(tmp_path, capsys, monkeypatch):
     assert payload["ok"] is True
     assert payload["runtime_patched"] is True
     assert "ZCODE_KEYSMITH_SYSTEM_FILE" in runtime.read_text(encoding="utf-8")
+
+
+def test_patch_accepts_zcode_319_400_anchor_and_followups():
+    patched = mod.build_patched_runtime_text(RUNTIME_V319_V400, "/tmp/system-role.md")
+    assert mod.runtime_is_patchable_text(RUNTIME_V319_V400)
+    assert "ZCODE_KEYSMITH_SYSTEM_FILE" in patched
+    assert "customSystemPrompt:this.config.workflowActor===void 0?" in patched
+    assert ":void 0,workflowActor:this.config.workflowActor,outputStyle:" in patched
+    assert ";i||c||t.push(u7e()),i?t.push(Ric({name:\"Custom System Prompt\"" in patched
+    assert ";c||t.push(u7e()),i?t.push(Ric({name:\"Custom System Prompt\"" not in patched
+    assert "OVERRIDE any default behavior" not in patched
+    assert "Be sure to adhere to these instructions." not in patched
+    assert "function _ic(e,t){if(!0)return null;if(!e||t===void 0)return null;" in patched
+    assert not mod._runtime_cli_prefix_skipped(RUNTIME_V319_V400)
+    assert mod._runtime_cli_prefix_skipped(patched)
+    assert not mod._runtime_memory_skipped(RUNTIME_V319_V400)
+    assert mod._runtime_memory_skipped(patched)
+    assert mod._runtime_override_neutralized(patched)
+    assert mod.apply_followup_runtime_patches(patched) == patched
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is needed to execute JS fixture")
+def test_zcode_400_prompt_and_memory_skip_execute_cleanly_in_node(tmp_path):
+    runtime = (
+        'const u7e=()=>"prefix",Ric=x=>x,C3n=(a,u)=>({workflow:a,mid:u}),I3n=(n,u)=>({default:n,mid:u});'
+        "function wIe(t){return t}"
+        "const eZo={join:(e,n)=>e+'/'+n};"
+        'const F2n="user\'s auto-memory, persists across conversations";'
+        "const Ixt=(p,k,b)=>({p,k,b});"
+        + MEMORY_ATTACH_FN_V318
+        + 'class Builder{constructor(config){this.config=config}build(){let t=[],'
+        'n=this.config.outputStyle,o=this.config.customSystemPrompt,i=!!o?.trim(),a=this.config.workflowActor;'
+        'if(a!==void 0&&i)throw new Error("ContextBuilder: workflowActor and customSystemPrompt are mutually exclusive");'
+        'let c=a!==void 0,u=this.config.midConversationSystem!==!1;c||t.push(u7e()),'
+        'i?t.push(Ric({name:"Custom System Prompt",content:o})):a!==void 0?t.push(C3n(a,u)):t.push(I3n(n,u));'
+        'return t}}'
+        'function make(){return new Builder({customSystemPrompt:this.config.systemPrompt,'
+        'workflowActor:this.config.workflowActor,outputStyle:this.config.outputStyle})}'
+        'module.exports={build:config=>make.call({config}).build(),memory:_ic};'
+    )
+    patched_path = tmp_path / "runtime400.cjs"
+    patched_path.write_text(
+        mod.build_patched_runtime_text(runtime, str(tmp_path / "system.md")),
+        encoding="utf-8",
+    )
+    (tmp_path / "system.md").write_text("managed 4.0 prompt", encoding="utf-8")
+    node = shutil.which("node")
+    assert node is not None
+    assert subprocess.run([node, "--check", str(patched_path)], capture_output=True).returncode == 0
+
+    def run_js(expr, arg=None):
+        cmd = [node, "-e", expr, str(patched_path)]
+        if arg is not None:
+            cmd.append(json.dumps(arg))
+        result = subprocess.run(cmd, text=True, capture_output=True, check=True)
+        return json.loads(result.stdout)
+
+    build_expr = "const m=require(process.argv[1]);console.log(JSON.stringify(m.build(JSON.parse(process.argv[2]))))"
+    assert run_js(build_expr, {"systemPrompt": "vendor"}) == [
+        {"name": "Custom System Prompt", "content": "managed 4.0 prompt"}
+    ]
+    assert run_js(build_expr, {"workflowActor": "delegate", "systemPrompt": "vendor"}) == [
+        {"workflow": "delegate", "mid": True}
+    ]
+    (tmp_path / "system.md").unlink()
+    assert run_js(build_expr, {"systemPrompt": "vendor"}) == [
+        {"name": "Custom System Prompt", "content": "vendor"}
+    ]
+    assert run_js("const m=require(process.argv[1]);console.log(JSON.stringify(m.memory('/tmp','notes')))") is None
+
+
+def test_verify_and_recover_repair_zcode_318_400_missing_followups(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    monkeypatch.setattr(mod, "launch_agent_loaded", lambda label, runner=None: "true")
+    plan, runtime, source, node = _runtime_patch_plan(tmp_path, RUNTIME_V319_V400)
+    assert mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(plan.paths.managed_dir),
+        "--launch-agent", str(plan.paths.launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node),
+        "--yes",
+        "--no-activate",
+    ]) == 0
+    capsys.readouterr()
+
+    # Verify passes immediately on freshly patched 3.19 / 4.0 runtime.
+    assert mod.main([
+        "verify",
+        "--managed-dir", str(plan.paths.managed_dir),
+        "--launch-agent", str(plan.paths.launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node),
+        "--json",
+    ]) == 0
+    v_ok = json.loads(capsys.readouterr().out)
+    assert v_ok["ok"] is True
+    assert v_ok["competing_context"]["cli_prefix_skipped"] is True
+    assert v_ok["competing_context"]["agentsmd_override_neutralized"] is True
+    assert v_ok["competing_context"]["memory_skipped"] is True
+
+    # Simulate an older 0.3.4 patch on a 3.18+ runtime: main anchor patched, followups missed.
+    only_main = mod.replace_vendor_system_prompt_anchor(
+        RUNTIME_V319_V400,
+        mod.build_system_prompt_expression(str(plan.paths.system_file)),
+    )
+    runtime.write_text(only_main, encoding="utf-8")
+
+    assert mod.main([
+        "verify",
+        "--managed-dir", str(plan.paths.managed_dir),
+        "--launch-agent", str(plan.paths.launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node),
+        "--json",
+    ]) == 1
+    v_bad = json.loads(capsys.readouterr().out)
+    assert any("CLI prefix skip" in b for b in v_bad["blockers"])
+    assert any("OVERRIDE" in b for b in v_bad["blockers"])
+    assert any("MEMORY.md skip" in b for b in v_bad["blockers"])
+
+    assert mod.main([
+        "recover",
+        "--managed-dir", str(plan.paths.managed_dir),
+        "--launch-agent", str(plan.paths.launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node),
+        "--yes",
+        "--json",
+    ]) == 0
+    rec = json.loads(capsys.readouterr().out)
+    assert rec["ok"] is True
+    assert rec["competing_context"]["cli_prefix_skipped"] is True
+    assert rec["competing_context"]["agentsmd_override_neutralized"] is True
+    assert rec["competing_context"]["memory_skipped"] is True
+
+
+def test_auto_repatch_upgrades_after_zcode_updates_to_400(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(mod, "is_zcode_running", lambda: False)
+    plan, runtime, source, node = _runtime_patch_plan(tmp_path, RUNTIME_V314)
+    assert mod.main([
+        "install",
+        "--system-file", str(source),
+        "--managed-dir", str(plan.paths.managed_dir),
+        "--launch-agent", str(plan.paths.launch_agent),
+        "--zcode-runtime", str(runtime),
+        "--node-command", str(node),
+        "--yes",
+        "--no-activate",
+    ]) == 0
+    # Official update swaps runtime to ZCode 4.0.0 shape.
+    runtime.write_text(RUNTIME_V319_V400, encoding="utf-8")
+    result = mod.run_auto_repatch(
+        plan,
+        yes=True,
+        dry_run_flag=False,
+        restart=False,
+        settle_timeout=1.0,
+        settle_stable=0.0,
+        sleeper=lambda _s: None,
+    )
+    assert result["status"] == "patched"
+    patched = runtime.read_text(encoding="utf-8")
+    assert mod.runtime_text_prefers_managed(patched)
+    assert mod._runtime_cli_prefix_skipped(patched)
+    assert mod._runtime_memory_skipped(patched)
+    assert mod._runtime_override_neutralized(patched)
+    backup = Path(result["runtime_original_backup"])
+    assert backup.read_text(encoding="utf-8") == RUNTIME_V319_V400

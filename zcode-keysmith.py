@@ -42,7 +42,7 @@ REPO_ROOT = (
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
     else Path(__file__).resolve().parent
 )
-__version__ = "0.3.4"
+__version__ = "0.3.5"
 VERSION = __version__
 JSON_SCHEMA = "zcode-keysmith/v1"
 _LAST_USAGE_ERROR: list[str | None] = [None]
@@ -65,9 +65,10 @@ DEFAULT_ZCODE_HELPER_NODE_COMMAND = DEFAULT_ZCODE_APP / "Contents" / "Frameworks
 DEFAULT_ZCODE_NODE_COMMAND = DEFAULT_ZCODE_HELPER_NODE_COMMAND
 FALLBACK_ZCODE_NODE_COMMAND = DEFAULT_ZCODE_APP / "Contents" / "MacOS" / "ZCode"
 DEFAULT_AGENT_ARGS_JSON = '["app-server","--stdio"]'
-# 3.14 inserts workflowActor between systemPrompt and language; keep 3.12 as a fallback.
+# 3.14-3.18 place workflowActor before language; 3.19+ / 4.0 drop language and
+# follow workflowActor with outputStyle. Keep the 3.12 language-only fallback.
 PATCH_NEEDLES = (
-    "customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor,language:",
+    "customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor,",
     "customSystemPrompt:this.config.systemPrompt,language:",
 )
 CUSTOM_SYSTEM_PROMPT_ASSIGN = "customSystemPrompt:this.config.systemPrompt"
@@ -75,15 +76,16 @@ RUNTIME_PATCH_MARKER = "ZCODE_KEYSMITH_SYSTEM_FILE"
 PREFER_MANAGED_MARKER = "if(x&&x.trim())return x"
 # 3.12: if(t.push(Xxx()),o?t.push(Yyy({name:"Custom System Prompt"
 _LRE_PUSH_RE = re.compile(
-    r'if\(t\.push\(([A-Za-z0-9]+)\(\)\),o\?t\.push\(([A-Za-z0-9]+)\(\{name:"Custom System Prompt"'
+    r'if\(t\.push\(([A-Za-z0-9_$]+)\(\)\),o\?t\.push\(([A-Za-z0-9_$]+)\(\{name:"Custom System Prompt"'
 )
-# 3.14: if(l||t.push(Xxx()),s?t.push(Yyy({name:"Custom System Prompt"
+# 3.14-3.16: if(l||t.push(Xxx()),s?t.push(Yyy({name:"Custom System Prompt"
+# 3.17-4.0+: ;c||t.push(Xxx()),i?t.push(Yyy({name:"Custom System Prompt"
 _LRE_PUSH_RE_V314 = re.compile(
-    r'if\(([A-Za-z0-9]+)\|\|t\.push\(([A-Za-z0-9]+)\(\)\),([A-Za-z0-9]+)\?t\.push\(([A-Za-z0-9]+)\(\{name:"Custom System Prompt"'
+    r'(if\(|;)([A-Za-z0-9_$]+)\|\|t\.push\(([A-Za-z0-9_$]+)\(\)\),([A-Za-z0-9_$]+)\?t\.push\(([A-Za-z0-9_$]+)\(\{name:"Custom System Prompt"'
 )
 _CLI_PREFIX_SKIPPED_RE = re.compile(
-    r'if\(\(([A-Za-z0-9]+)\|\|t\.push\(|'
-    r'if\(([A-Za-z0-9]+)\|\|([A-Za-z0-9]+)\|\|t\.push\('
+    r'if\(\(([A-Za-z0-9_$]+)\|\|t\.push\([A-Za-z0-9_$]+\(\)\)\),\1\?t\.push\([A-Za-z0-9_$]+\(\{name:"Custom System Prompt"|'
+    r'(?:if\(|;)([A-Za-z0-9_$]+)\|\|([A-Za-z0-9_$]+)\|\|t\.push\([A-Za-z0-9_$]+\(\)\),\2\?t\.push\([A-Za-z0-9_$]+\(\{name:"Custom System Prompt"'
 )
 OVERRIDE_NEEDLE = (
     "IMPORTANT: These instructions OVERRIDE any default behavior and you MUST follow them exactly as written."
@@ -95,7 +97,16 @@ OVERRIDE_REPL = (
 AGENTS_ADHERE_NEEDLE = "Be sure to adhere to these instructions. "
 MEMORY_ATTACH_MARK = "(user's auto-memory, persists across conversations):"
 MEMORY_SKIP_INSERT = "if(!0)return null;"
-_MEMORY_ATTACH_FN_RE = re.compile(r"function [A-Za-z0-9]+\([A-Za-z0-9]+,[A-Za-z0-9]+\)\{")
+_MEMORY_ATTACH_FN_RE = re.compile(r"function [A-Za-z0-9_$]+\([A-Za-z0-9_$]+,[A-Za-z0-9_$]+\)\{")
+# 3.18-4.0+: buildProjectMemoryIndexFile moved the auto-memory label into a shared
+# constant and passes it to createInstructionFile(path.join(e,"MEMORY.md"), ...).
+_MEMORY_ATTACH_FN_V318_RE = re.compile(
+    r"(function [A-Za-z0-9_$]+\(([A-Za-z0-9_$]+),([A-Za-z0-9_$]+)\)\{)"
+    r"(?:if\(!0\)return null;)?"
+    r"if\(!\2\|\|\3===void 0\)return null;"
+    r"let [A-Za-z0-9_$]+=[A-Za-z0-9_$]+\(\3\);"
+    r'return [A-Za-z0-9_$]+\?[A-Za-z0-9_$]+\(\(0,[A-Za-z0-9_$]+\.join\)\(\2,"MEMORY\.md"\),'
+)
 STORAGE_STARTUP_NEEDLE = b"supportsStorageStartup"
 INJECTION_WRAPPER = "wrapper"
 INJECTION_RUNTIME_PATCH = "runtime-patch"
@@ -484,7 +495,7 @@ def replace_vendor_system_prompt_anchor(original_runtime: str, expression: str) 
     needle = vendor_patch_anchor(original_runtime)
     if needle is None:
         raise KeysmithError("ZCode runtime patch anchor not found")
-    if needle == PATCH_NEEDLES[0]:
+    if "workflowActor:" in needle:
         expression = "this.config.workflowActor===void 0?" + expression + ":void 0"
     suffix = needle[len(CUSTOM_SYSTEM_PROMPT_ASSIGN) :]
     return original_runtime.replace(needle, "customSystemPrompt:" + expression + suffix, 1)
@@ -493,13 +504,19 @@ def replace_vendor_system_prompt_anchor(original_runtime: str, expression: str) 
 def _memory_attach_body_at(text: str) -> int | None:
     """Return the index of the MEMORY.md attach function body, if present."""
     mark_at = text.find(MEMORY_ATTACH_MARK)
-    if mark_at < 0:
-        return None
-    search_from = max(0, mark_at - 240)
-    matches = list(_MEMORY_ATTACH_FN_RE.finditer(text, search_from, mark_at))
-    if not matches:
-        return None
-    return matches[-1].end()
+    if mark_at >= 0:
+        search_from = max(0, mark_at - 240)
+        matches = list(_MEMORY_ATTACH_FN_RE.finditer(text, search_from, mark_at))
+        if matches:
+            return matches[-1].end()
+    match = _MEMORY_ATTACH_FN_V318_RE.search(text)
+    if match is not None:
+        return match.end(1)
+    return None
+
+
+def _memory_attach_present(text: str) -> bool:
+    return MEMORY_ATTACH_MARK in text or _memory_attach_body_at(text) is not None
 
 
 def _skip_memory_attach(text: str) -> str:
@@ -520,7 +537,7 @@ def apply_followup_runtime_patches(text: str) -> str:
         count=1,
     )
     patched, _n = _LRE_PUSH_RE_V314.subn(
-        r'if(\3||\1||t.push(\2()),\3?t.push(\4({name:"Custom System Prompt"',
+        r'\1\4||\2||t.push(\3()),\4?t.push(\5({name:"Custom System Prompt"',
         patched,
         count=1,
     )
@@ -1096,6 +1113,7 @@ def render_config(
 def render_preload(plan: InstallPlan) -> str:
     system_file_json = json.dumps(str(plan.paths.system_file), ensure_ascii=False)
     log_dir_json = json.dumps(str(plan.paths.log_dir), ensure_ascii=False)
+    patch_needles_json = json.dumps(list(PATCH_NEEDLES), ensure_ascii=False)
     return (
         "\"use strict\";\n"
         "const fs = require(\"node:fs\");\n"
@@ -1103,10 +1121,7 @@ def render_preload(plan: InstallPlan) -> str:
         f"const SYSTEM_FILE = process.env.ZCODE_KEYSMITH_SYSTEM_FILE || {system_file_json};\n"
         f"const LOG_DIR = process.env.ZCODE_KEYSMITH_LOG_DIR || {log_dir_json};\n"
         "const LOG_FILE = path.join(LOG_DIR, \"wrapper-start.jsonl\");\n"
-        "const NEEDLES = [\n"
-        "  \"customSystemPrompt:this.config.systemPrompt,workflowActor:this.config.workflowActor,language:\",\n"
-        "  \"customSystemPrompt:this.config.systemPrompt,language:\"\n"
-        "];\n"
+        f"const NEEDLES = {patch_needles_json};\n"
         "\n"
         "function managedPromptExpression() {\n"
         "  const file = JSON.stringify(process.env.ZCODE_KEYSMITH_SYSTEM_FILE || SYSTEM_FILE);\n"
@@ -1122,7 +1137,7 @@ def render_preload(plan: InstallPlan) -> str:
         "  for (const needle of NEEDLES) {\n"
         "    if (!source.includes(needle)) continue;\n"
         "    const suffix = needle.slice(\"customSystemPrompt:this.config.systemPrompt\".length);\n"
-        "    const expression = needle === NEEDLES[0]\n"
+        "    const expression = needle.includes(\"workflowActor:\")\n"
         "      ? \"this.config.workflowActor===void 0?\" + managedPromptExpression() + \":void 0\"\n"
         "      : managedPromptExpression();\n"
         "    return source.replace(needle, \"customSystemPrompt:\" + expression + suffix);\n"
@@ -1307,7 +1322,7 @@ def patched_runtime_path() -> pathlib.Path:
         raise RuntimeError(f"ZCode runtime patch anchor not found: {{ORIGINAL_RUNTIME}}")
     suffix = needle[len("customSystemPrompt:this.config.systemPrompt"):]
     expression = system_prompt_expression()
-    if needle == PATCH_NEEDLES[0]:
+    if "workflowActor:" in needle:
         expression = "this.config.workflowActor===void 0?" + expression + ":void 0"
     replacement = "customSystemPrompt:" + expression + suffix
     patched = original.replace(needle, replacement, 1)
@@ -2118,7 +2133,7 @@ def run_auto_repatch(
     if dry_run:
         return auto_repatch_result(
             "patchable",
-            "vendor runtime is a known 3.12/3.14 shape; would patch, backup, and restart if ZCode is running",
+            "vendor runtime is a known 3.12+ shape; would patch, backup, and restart if ZCode is running",
             runtime=runtime_path,
             write=False,
         )
@@ -2893,7 +2908,7 @@ def verify_report(
             blockers.append("CLI prefix skip is missing from the patched runtime")
         if OVERRIDE_NEEDLE in runtime_text:
             blockers.append("agentsMd OVERRIDE neutralization is missing from the patched runtime")
-        if MEMORY_ATTACH_MARK in runtime_text and not competing["memory_skipped"]:
+        if _memory_attach_present(runtime_text) and not competing["memory_skipped"]:
             blockers.append("MEMORY.md skip is missing from the patched runtime")
     return _json_report(
         "verify",
@@ -3003,7 +3018,7 @@ def inspect_recover(plan: InstallPlan) -> dict[str, object]:
             actions.append("reapply_runtime_patch")
         else:
             if OVERRIDE_NEEDLE in runtime_text or (
-                MEMORY_ATTACH_MARK in runtime_text and not _runtime_memory_skipped(runtime_text)
+                _memory_attach_present(runtime_text) and not _runtime_memory_skipped(runtime_text)
             ) or (
                 'name:"Custom System Prompt"' in runtime_text
                 and not _runtime_cli_prefix_skipped(runtime_text)
