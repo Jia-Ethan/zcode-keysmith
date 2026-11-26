@@ -12,6 +12,7 @@
   <a href="https://github.com/Jia-Ethan/zcode-keysmith/stargazers"><img src="https://img.shields.io/github/stars/Jia-Ethan/zcode-keysmith?style=flat-square&color=%232f81f7" alt="GitHub Stars" /></a>
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/license-MIT-6DB33F?style=flat-square" alt="MIT License" />
+  <a href="https://t.me/+xBqLYA65JPU1NjFk"><img src="https://img.shields.io/badge/Telegram-group-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram" /></a>
 </p>
 
 <p>
@@ -147,7 +148,7 @@ macOS and Windows. Python 3.10+. Linux is not documented.
 - [grok-keysmith](https://github.com/Jia-Ethan/grok-keysmith) — for Grok Build
 - [zcode-keysmith](https://github.com/Jia-Ethan/zcode-keysmith) — for ZCode
 
-Feedback: [GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7) · Community: [LINUX DO](https://linux.do)
+Feedback: [GitHub Discussions](https://github.com/Jia-Ethan/zcode-keysmith/discussions/7) · Community: [LINUX DO](https://linux.do) · Group: [Telegram](https://t.me/+xBqLYA65JPU1NjFk)
 
 ## Star History
 
